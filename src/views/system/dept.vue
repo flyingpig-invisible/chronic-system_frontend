@@ -19,15 +19,34 @@
             <el-tag :type="row.status === '0' ? 'success' : 'danger'" size="small">{{ row.status === '0' ? '正常' : '停用' }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="300" fixed="right">
           <template #default="{ row }">
             <el-button v-permission="['system:dept:add']" type="primary" link size="small" @click="openAdd(row)">新增下级</el-button>
             <el-button v-permission="['system:dept:edit']" type="primary" link size="small" @click="openEdit(row)">编辑</el-button>
+            <el-button type="info" link size="small" @click="openDoctors(row)">查看医生</el-button>
             <el-button v-permission="['system:dept:remove']" type="danger" link size="small" @click="handleDelete(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
     </div>
+
+    <el-drawer v-model="doctorDrawer" :title="`【${currentDept.deptName}】医生列表`" size="560px">
+      <el-table v-loading="doctorLoading" :data="doctorList" border stripe>
+        <el-table-column prop="userId" label="ID" width="70" />
+        <el-table-column prop="realName" label="姓名" width="110" />
+        <el-table-column prop="username" label="用户名" width="120" />
+        <el-table-column prop="title" label="职称" width="100" />
+        <el-table-column prop="phone" label="手机号" width="130" />
+        <el-table-column label="状态" width="80">
+          <template #default="{ row }">
+            <el-tag :type="row.status === '0' ? 'success' : 'danger'" size="small">
+              {{ row.status === '0' ? '正常' : '停用' }}
+            </el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+      <el-empty v-if="!doctorLoading && !doctorList.length" description="该科室暂无医生" :image-size="80" />
+    </el-drawer>
 
     <el-dialog v-model="dialogVisible" :title="form.deptId ? '编辑科室' : '新增科室'" width="460px">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
@@ -63,12 +82,16 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
-import { deptTree, addDept, updateDept, delDept } from '@/api/system'
+import { deptTree, addDept, updateDept, delDept, deptDoctors } from '@/api/system'
 
 const loading = ref(false)
 const list = ref([])
 const rawTree = ref([])
 const dialogVisible = ref(false)
+const doctorDrawer = ref(false)
+const doctorLoading = ref(false)
+const doctorList = ref([])
+const currentDept = ref({})
 const formRef = ref()
 
 const form = reactive({ deptId: null, parentId: null, deptName: '', orderNum: 0, status: '0' })
@@ -110,6 +133,19 @@ const handleSubmit = () => {
     dialogVisible.value = false
     loadTree()
   })
+}
+
+const openDoctors = async (row) => {
+  currentDept.value = row
+  doctorList.value = []
+  doctorDrawer.value = true
+  doctorLoading.value = true
+  try {
+    const res = await deptDoctors(row.deptId)
+    doctorList.value = res.data || []
+  } finally {
+    doctorLoading.value = false
+  }
 }
 
 const handleDelete = (row) => {

@@ -79,6 +79,10 @@ export function updateDept(data) {
   return request({ url: '/system/dept', method: 'put', data })
 }
 
+export function deptDoctors(deptId) {
+  return request({ url: `/system/dept/${deptId}/doctors`, method: 'get' })
+}
+
 export function delDept(deptId) {
   return request({ url: `/system/dept/${deptId}`, method: 'delete' })
 }

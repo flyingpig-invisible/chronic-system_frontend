@@ -31,7 +31,12 @@
           </template>
         </el-table-column>
         <el-table-column prop="phone" label="手机号" width="130" />
-        <el-table-column prop="deptId" label="科室ID" width="90" />
+        <el-table-column label="所属科室" width="120">
+          <template #default="{ row }">
+            <span v-if="row.deptName">{{ row.deptName }}</span>
+            <span v-else style="color:#909399">-</span>
+          </template>
+        </el-table-column>
         <el-table-column label="状态" width="90">
           <template #default="{ row }">
             <el-tag :type="row.status === '0' ? 'success' : 'danger'" size="small">

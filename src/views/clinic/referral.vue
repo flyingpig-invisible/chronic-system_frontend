@@ -33,6 +33,7 @@
       </div>
       <el-table v-loading="loading" :data="list" border stripe>
         <el-table-column prop="patientName" label="患者" width="90" />
+        <el-table-column prop="fromDeptName" label="转出科室" width="120" />
         <el-table-column prop="targetHospital" label="接收医院" min-width="140" />
         <el-table-column prop="targetDept" label="接收科室" width="110" />
         <el-table-column prop="reason" label="转诊原因" min-width="150" show-overflow-tooltip />
@@ -68,6 +69,9 @@
         </el-form-item>
         <el-form-item label="接收医院" prop="targetHospital"><el-input v-model="applyForm.targetHospital" /></el-form-item>
         <el-form-item label="接收科室"><el-input v-model="applyForm.targetDept" /></el-form-item>
+        <el-form-item label="转出科室">
+          <el-input :model-value="currentDeptName" disabled placeholder="自动取当前医生所在科室" />
+        </el-form-item>
         <el-form-item label="紧急程度">
           <el-radio-group v-model="applyForm.urgency">
             <el-radio value="1">一般</el-radio>
@@ -115,10 +119,11 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Search, Refresh, Plus } from '@element-plus/icons-vue'
 import { listReferral, applyReferral, auditReferral } from '@/api/referral'
+import { useUserStore } from '@/store/user'
 
 const loading = ref(false)
 const list = ref([])
@@ -130,6 +135,9 @@ const current = ref({})
 const applyRef = ref()
 
 const query = reactive({ pageNum: 1, pageSize: 10, patientId: null, urgency: '', referralStatus: '' })
+const userStore = useUserStore()
+// 转出科室由后端按当前医生所在科室自动填充，这里仅做提示展示
+const currentDeptName = computed(() => userStore.deptName || '自动识别')
 const applyForm = reactive({ patientId: null, patientName: '', targetHospital: '', targetDept: '', urgency: '1', reason: '' })
 const auditForm = reactive({ referralStatus: '1', auditOpinion: '', receiveHospital: '', receiveDept: '' })
 const applyRules = {

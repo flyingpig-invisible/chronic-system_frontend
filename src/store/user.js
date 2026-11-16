@@ -7,8 +7,11 @@ export const useUserStore = defineStore('user', {
     token: getToken() || '',
     userId: null,
     username: '',
+    userType: '',
     realName: '',
     avatar: '',
+    deptId: null,
+    deptName: '',
     roles: [],
     permissions: []
   }),
@@ -31,7 +34,10 @@ export const useUserStore = defineStore('user', {
       this.userId = user.userId
       this.username = user.username
       this.realName = user.realName
+      this.userType = user.userType || ''
       this.avatar = user.avatar
+      this.deptId = user.deptId
+      this.deptName = user.deptName || ''
       this.roles = user.roles && user.roles.length ? user.roles : ['doctor']
       this.permissions = user.permissions && user.permissions.length ? user.permissions : []
       return user
@@ -48,7 +54,10 @@ export const useUserStore = defineStore('user', {
       this.token = ''
       this.userId = null
       this.username = ''
+      this.userType = ''
       this.realName = ''
+      this.deptId = null
+      this.deptName = ''
       this.roles = []
       this.permissions = []
       removeToken()

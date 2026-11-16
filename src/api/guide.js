@@ -27,3 +27,15 @@ export function delGuide(guideIds) {
 export function markGuideRead(guideId) {
   return request({ url: `/chronic/guide/${guideId}/read`, method: 'put' })
 }
+
+export function guideTypeOptions() {
+  return request({ url: '/chronic/guide/type/option', method: 'get' })
+}
+
+export function addGuideType(label) {
+  return request({ url: '/chronic/guide/type', method: 'post', data: { label } })
+}
+
+export function deleteGuideType(label) {
+  return request({ url: '/chronic/guide/delete', method: 'post', params: { label } })
+}

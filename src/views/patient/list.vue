@@ -15,6 +15,14 @@
             <el-option label="高危" value="3" />
           </el-select>
         </el-form-item>
+        <el-form-item label="科室">
+          <el-tree-select
+            v-model="query.deptId"
+            :data="queryDeptOptions"
+            :props="{ label: 'deptName', children: 'children', value: 'deptId' }"
+            check-strictly clearable placeholder="全部" style="width:160px"
+          />
+        </el-form-item>
         <el-form-item label="病种">
           <el-select v-model="query.diseaseCode" placeholder="全部" clearable style="width:130px">
             <el-option label="高血压" value="1" />
@@ -63,6 +71,7 @@
             <span v-else>0</span>
           </template>
         </el-table-column>
+        <el-table-column prop="deptName" label="所属科室" width="120" />
         <el-table-column prop="doctorName" label="责任医生" width="100" />
         <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
@@ -124,15 +133,13 @@
           <el-col :span="12">
             <el-form-item label="责任医师">
               <el-select v-model="form.doctorId" clearable style="width:100%">
-                <el-option v-for="d in doctors" :key="d.userId" :label="d.realName" :value="d.userId" />
+                <el-option v-for="d in doctors" :key="d.userId" :value="d.userId" :label="doctorOptionLabel(d)" />
               </el-select>
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item label="所属科室">
-              <el-select v-model="form.deptId" clearable style="width:100%">
-                <el-option v-for="d in depts" :key="d.deptId" :label="d.deptName" :value="d.deptId" />
-              </el-select>
+              <el-input :model-value="deptNameOf(form.doctorId)" disabled placeholder="由责任医生自动带出" />
             </el-form-item>
           </el-col>
         </el-row>
@@ -146,7 +153,7 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, Plus, Download } from '@element-plus/icons-vue'
@@ -167,6 +174,15 @@ const form = reactive({
   patientId: null, name: '', gender: '0', birthday: '', phone: '', idCard: '', address: '',
   diseaseCodes: [], riskLevel: '1', doctorId: null, deptId: null
 })
+const doctorOptionLabel = (d) => (d.deptName ? `${d.realName}（${d.deptName}）` : d.realName)
+// 科室由责任医生自动带出，仅供展示
+const deptNameOf = (doctorId) => {
+  const d = doctors.value.find((x) => x.userId === doctorId)
+  return d ? d.deptName || '未分配科室' : ''
+}
+// 科室筛选下拉
+const queryDeptOptions = computed(() => depts.value || [])
+
 const rules = {
   name: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
   phone: [{ pattern: /^1[3-9]\d{9}$/, message: '手机号格式不正确', trigger: 'blur' }]
@@ -192,7 +208,7 @@ const handleQuery = () => {
 }
 
 const resetQuery = () => {
-  Object.assign(query, { pageNum: 1, pageSize: 10, name: '', phone: '', riskLevel: '', diseaseCode: '' })
+  Object.assign(query, { pageNum: 1, pageSize: 10, name: '', phone: '', riskLevel: '', diseaseCode: '', deptId: null })
   loadList()
 }
 

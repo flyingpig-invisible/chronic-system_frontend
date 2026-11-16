@@ -7,9 +7,7 @@
         </el-form-item>
         <el-form-item label="类型">
           <el-select v-model="query.guideType" placeholder="全部" clearable style="width:130px">
-            <el-option label="调药" value="1" />
-            <el-option label="用药提醒" value="2" />
-            <el-option label="饮食推荐" value="3" />
+            <el-option v-for="t in guideTypes" :key="t.value" :label="t.label" :value="t.value" />
           </el-select>
         </el-form-item>
         <el-form-item label="状态">
@@ -28,6 +26,7 @@
     <div class="table-card">
       <div class="table-toolbar">
         <el-button type="primary" :icon="Plus" @click="openAdd">新增指导</el-button>
+        <el-button v-if="canManageType" :icon="Setting" @click="openTypeDialog">新增指导类型</el-button>
         <el-tag type="success" effect="dark" style="margin-left:12px">v2026-10-07 22:55 修复版</el-tag>
       </div>
       <el-table v-loading="loading" :data="list" border stripe>
@@ -69,9 +68,7 @@
         <el-form-item label="关联预警"><el-input-number v-model="form.warningId" :min="1" style="width:100%" placeholder="可空" /></el-form-item>
         <el-form-item label="指导类型" prop="guideType">
           <el-select v-model="form.guideType" style="width:100%">
-            <el-option label="调药" value="1" />
-            <el-option label="用药提醒" value="2" />
-            <el-option label="饮食推荐" value="3" />
+            <el-option v-for="t in guideTypes" :key="t.value" :label="t.label" :value="t.value" />
           </el-select>
         </el-form-item>
         <el-form-item label="指导内容" prop="content"><el-input v-model="form.content" type="textarea" :rows="4" /></el-form-item>
@@ -81,20 +78,56 @@
         <el-button type="primary" @click="handleSubmit">确定</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="typeDialogVisible" title="新增指导类型" width="420px">
+      <el-form ref="typeFormRef" :model="typeForm" :rules="typeRules" label-width="90px">
+        <el-form-item label="类型名称" prop="label">
+          <el-input v-model="typeForm.label" placeholder="例如：运动建议" maxlength="20" show-word-limit />
+        </el-form-item>
+      </el-form>
+      <el-divider content-position="left">已有类型</el-divider>
+      <div class="type-list">
+        <el-tag
+          v-for="t in guideTypes"
+          :key="t.value"
+          closable
+          :disable-transitions="false"
+          style="margin: 0 8px 8px 0"
+          @close="handleDeleteType(t)"
+        >
+          {{ t.label }}
+        </el-tag>
+        <span v-if="!guideTypes.length" style="color:#909399;font-size:13px">暂无类型</span>
+      </div>
+      <template #footer>
+        <el-button @click="typeDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="submitType">确定</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, Refresh, Plus } from '@element-plus/icons-vue'
-import { listGuide, addGuide, updateGuide, delGuide } from '@/api/guide'
+import { Search, Refresh, Plus, Setting } from '@element-plus/icons-vue'
+import { useUserStore } from '@/store/user'
+import { listGuide, addGuide, updateGuide, delGuide, guideTypeOptions, addGuideType, deleteGuideType } from '@/api/guide'
 
+const userStore = useUserStore()
 const loading = ref(false)
 const list = ref([])
 const total = ref(0)
 const dialogVisible = ref(false)
 const formRef = ref()
+const guideTypes = ref([])
+const typeDialogVisible = ref(false)
+const typeFormRef = ref()
+const typeForm = reactive({ label: '' })
+const typeRules = { label: [{ required: true, message: '请输入指导类型名称', trigger: 'blur' }] }
+
+// userType: 1 医生 2 超级管理员，仅这两类可新增指导类型
+const canManageType = computed(() => ['1', '2'].includes(userStore.userType))
 
 const query = reactive({ pageNum: 1, pageSize: 10, patientId: null, guideType: '', readStatus: '' })
 const form = reactive({ guideId: null, patientId: null, patientName: '', warningId: null, guideType: '1', content: '' })
@@ -103,7 +136,19 @@ const rules = {
   content: [{ required: true, message: '请输入指导内容', trigger: 'blur' }]
 }
 
-const guideTypeName = (t) => ({ 1: '调药', 2: '用药提醒', 3: '饮食推荐' }[t] || '-')
+const guideTypeName = (t) => {
+  const hit = guideTypes.value.find((x) => x.value === t)
+  return hit ? hit.label : t
+}
+
+const loadTypes = async () => {
+  try {
+    const res = await guideTypeOptions()
+    guideTypes.value = res.data || []
+  } catch (e) {
+    guideTypes.value = []
+  }
+}
 
 const loadList = async () => {
   loading.value = true
@@ -147,6 +192,35 @@ const handleSubmit = () => {
   })
 }
 
+const openTypeDialog = () => {
+  typeForm.label = ''
+  typeDialogVisible.value = true
+}
+
+const submitType = () => {
+  typeFormRef.value.validate(async (valid) => {
+    if (!valid) return
+    await addGuideType(typeForm.label.trim())
+    ElMessage.success('新增成功')
+    typeDialogVisible.value = false
+    await loadTypes()
+  })
+}
+
+const handleDeleteType = (t) => {
+  ElMessageBox.confirm(`确定删除指导类型「${t.label}」吗？`, '提示', {
+    type: 'warning'
+  })
+    .then(async () => {
+      await deleteGuideType(t.label)
+      ElMessage.success('删除成功')
+      if (query.guideType === t.value) query.guideType = ''
+      if (form.guideType === t.value) form.guideType = ''
+      await loadTypes()
+    })
+    .catch(() => {})
+}
+
 const handleDelete = (row) => {
   ElMessageBox.confirm('确定删除该指导吗？', '提示', { type: 'warning' }).then(async () => {
     await delGuide(row.guideId)
@@ -155,5 +229,8 @@ const handleDelete = (row) => {
   })
 }
 
-onMounted(loadList)
+onMounted(() => {
+  loadTypes()
+  loadList()
+})
 </script>
