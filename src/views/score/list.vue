@@ -64,6 +64,15 @@
           </template>
         </el-table-column>
         <el-table-column prop="calcTime" label="计算时间" width="170" />
+        <el-table-column label="操作" width="70" align="center" fixed="right">
+          <template #default="{ row }">
+            <el-tooltip content="删除该评分" placement="top">
+              <button class="row-delete" @click.stop="handleDelete(row)">
+                <el-icon><Close /></el-icon>
+              </button>
+            </el-tooltip>
+          </template>
+        </el-table-column>
       </el-table>
 
       <el-dialog
@@ -174,10 +183,10 @@
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
-import { ElMessage } from 'element-plus'
-import { Search, Refresh, Document } from '@element-plus/icons-vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { Search, Refresh, Document, Close } from '@element-plus/icons-vue'
 import PatientSelect from '@/components/PatientSelect.vue'
-import { listScore, calcScore } from '@/api/score'
+import { listScore, calcScore, deleteScore } from '@/api/score'
 
 const loading = ref(false)
 const list = ref([])
@@ -292,6 +301,27 @@ const resetQuery = () => {
   loadList()
 }
 
+const handleDelete = async (row) => {
+  try {
+    await ElMessageBox.confirm(
+      `确定删除该条评分记录吗？（患者 ${row.patientName || `ID:${row.patientId}`} · ${row.totalScore} 分 · ${row.calcTime || '-'}）删除后不可恢复。`,
+      '删除评分',
+      { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' }
+    )
+  } catch (e) {
+    return
+  }
+  await deleteScore(row.scoreId)
+  ElMessage.success('删除成功')
+  if (currentRow.value && currentRow.value.scoreId === row.scoreId) {
+    detailVisible.value = false
+  }
+  if (list.value.length === 1 && query.pageNum > 1) {
+    query.pageNum -= 1
+  }
+  loadList()
+}
+
 const handleCalc = async () => {
   if (!calcPatientId.value) {
     ElMessage.warning('请选择患者')
@@ -306,6 +336,27 @@ onMounted(loadList)
 </script>
 
 <style scoped>
+.row-delete {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 50%;
+  background: #fff;
+  color: var(--el-text-color-secondary);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.row-delete:hover {
+  border-color: var(--el-color-danger);
+  background: var(--el-color-danger-light-9);
+  color: var(--el-color-danger);
+}
 .detail-card {
   display: inline-flex;
   align-items: center;

@@ -12,6 +12,10 @@ export function scoreTrend(patientId) {
   return request({ url: `/chronic/score/trend/${patientId}`, method: 'get' })
 }
 
+export function deleteScore(scoreId) {
+  return request({ url: `/chronic/score/${scoreId}`, method: 'delete' })
+}
+
 export function listWeight(params) {
   return request({ url: '/chronic/score/weight/list', method: 'get', params })
 }
