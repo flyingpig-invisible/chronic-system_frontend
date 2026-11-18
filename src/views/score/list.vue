@@ -76,22 +76,70 @@
         @closed="onBatchDialogClosed"
       >
         <el-alert
-          type="info"
+          :type="batchAction === 'calc' ? 'success' : 'info'"
           :closable="false"
           show-icon
-          title="请选择要操作的类型，并勾选需要处理的评分记录"
+          :title="batchAction === 'calc' ? '选择患者后为其计算最新评分（基于该患者最近的监测数据）' : '请选择要操作的类型，并勾选需要处理的评分记录'"
           style="margin-bottom:12px"
         />
         <el-form label-width="90px" style="margin-bottom:12px">
           <el-form-item label="操作类型" required>
             <el-select v-model="batchAction" style="width:220px" @change="onBatchActionChange">
+              <el-option label="计算评分" value="calc" />
               <el-option label="删除评分记录" value="delete" />
             </el-select>
           </el-form-item>
         </el-form>
 
+        <div v-if="batchAction === 'calc'" class="batch-table-wrap">
+          <el-table
+            ref="calcTableRef"
+            v-loading="calcLoading"
+            :data="calcList"
+            row-key="patientId"
+            border
+            size="small"
+            height="420"
+            class="batch-table"
+            @selection-change="handleCalcSelection"
+          >
+            <el-table-column type="selection" width="48" reserve-selection />
+            <el-table-column prop="patientNo" label="患者编号" width="120" />
+            <el-table-column label="患者" width="110">
+              <template #default="{ row }">{{ row.name || `ID:${row.patientId}` }}</template>
+            </el-table-column>
+            <el-table-column prop="phone" label="手机号" width="130" />
+            <el-table-column label="当前风险" width="110">
+              <template #default="{ row }">
+                <el-tag v-if="row.riskLevel" :type="levelTag(row.riskLevel)" size="small">{{ levelName(row.riskLevel) }}</el-tag>
+                <span v-else>-</span>
+                <span v-if="row.riskScore !== null && row.riskScore !== undefined" class="calc-score num">{{ row.riskScore }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="计算状态" min-width="200">
+              <template #default="{ row }">
+                <template v-if="calcResult[row.patientId]">
+                  <el-tag v-if="calcResult[row.patientId].status === 'ok'" :type="levelTag(calcResult[row.patientId].riskLevel)" size="small">
+                    {{ levelName(calcResult[row.patientId].riskLevel) }}
+                  </el-tag>
+                  <span v-if="calcResult[row.patientId].status === 'ok'" class="calc-score num" :style="{ color: levelColor(calcResult[row.patientId].riskLevel) }">
+                    {{ calcResult[row.patientId].totalScore }} 分
+                  </span>
+                  <span v-else-if="calcResult[row.patientId].status === 'fail'" class="calc-error">{{ calcResult[row.patientId].message }}</span>
+                  <span v-else class="calc-waiting">计算中…</span>
+                </template>
+                <span v-else class="calc-waiting">未计算</span>
+              </template>
+            </el-table-column>
+          </el-table>
+          <div class="batch-scroll-tip">
+            <span>共 {{ calcList.length }} 位患者</span>
+            <span>勾选患者后点击右下角「开始计算」，将按最近监测数据与当前权重重新计算</span>
+          </div>
+        </div>
+
         <el-table
-          v-if="batchAction"
+          v-if="batchAction === 'delete'"
           ref="batchTableRef"
           v-loading="batchLoading"
           :data="batchList"
@@ -115,7 +163,7 @@
           </el-table-column>
           <el-table-column prop="calcTime" label="计算时间" min-width="150" />
         </el-table>
-        <div v-if="batchAction" class="batch-scroll-tip">
+        <div v-if="batchAction === 'delete'" class="batch-scroll-tip">
           <span>共 {{ batchTotal }} 条记录</span>
           <span v-if="batchLoadingMore">加载中…</span>
           <span v-else-if="batchList.length >= batchTotal">已全部加载，可上下滚动查看</span>
@@ -124,16 +172,27 @@
 
         <template #footer>
           <div class="batch-footer">
-            <span class="batch-count">已选 <b>{{ batchSelection.length }}</b> 条</span>
+            <span v-if="batchAction === 'delete'" class="batch-count">已选 <b>{{ batchSelection.length }}</b> 条</span>
+            <span v-else class="batch-count">已选 <b>{{ calcSelection.length }}</b> 位患者</span>
             <div>
               <el-button @click="batchVisible = false">取消</el-button>
               <el-button
+                v-if="batchAction === 'delete'"
                 type="danger"
                 :disabled="!batchSelection.length"
                 :loading="batchDeleting"
                 @click="handleBatchDelete"
               >
                 删除
+              </el-button>
+              <el-button
+                v-else
+                type="primary"
+                :disabled="!calcSelection.length"
+                :loading="calcRunning"
+                @click="handleBatchCalc"
+              >
+                开始计算
               </el-button>
             </div>
           </div>
@@ -252,6 +311,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, Document, Operation } from '@element-plus/icons-vue'
 import PatientSelect from '@/components/PatientSelect.vue'
 import { listScore, calcScore, deleteScores } from '@/api/score'
+import { listPatient } from '@/api/patient'
 
 const loading = ref(false)
 const list = ref([])
@@ -377,6 +437,12 @@ const batchLoading = ref(false)
 const batchLoadingMore = ref(false)
 const batchPageNum = ref(1)
 const batchPageSize = 50
+const calcTableRef = ref()
+const calcList = ref([])
+const calcSelection = ref([])
+const calcResult = ref({})
+const calcLoading = ref(false)
+const calcRunning = ref(false)
 
 const batchQueryParams = () => ({ patientId: query.patientId, riskLevel: query.riskLevel })
 
@@ -437,8 +503,39 @@ const onBatchDialogClosed = () => {
   batchTableRef.value?.clearSelection()
 }
 
+const resetCalcPanel = () => {
+  calcSelection.value = []
+  calcResult.value = {}
+  calcList.value = []
+}
+
+const loadCalcPatients = async () => {
+  calcLoading.value = true
+  try {
+    const res = await listPatient({ pageNum: 1, pageSize: 500 })
+    calcList.value = res.data.rows || []
+    await nextTick()
+    calcTableRef.value?.clearSelection()
+  } finally {
+    calcLoading.value = false
+  }
+}
+
+const handleCalcSelection = (rows) => {
+  calcSelection.value = rows
+}
+
 const onBatchActionChange = (val) => {
   if (!val) return
+  batchSelection.value = []
+  resetCalcPanel()
+  if (val === 'calc') {
+    unbindBatchScroll()
+    batchList.value = []
+    batchTotal.value = 0
+    loadCalcPatients()
+    return
+  }
   batchList.value = []
   batchTotal.value = 0
   loadBatchPage(1, false)
@@ -447,6 +544,7 @@ const onBatchActionChange = (val) => {
 const openBatchDialog = async () => {
   batchAction.value = 'delete'
   batchSelection.value = []
+  resetCalcPanel()
   batchList.value = []
   batchTotal.value = 0
   batchPageNum.value = 1
@@ -492,6 +590,59 @@ const handleBatchDelete = async () => {
   }
 }
 
+const calcResultMap = () => {
+  const map = {}
+  calcResultRows.value.forEach((row) => { map[row.patientId] = row })
+  return map
+}
+
+const handleBatchCalc = async () => {
+  if (!calcSelection.value.length) {
+    ElMessage.warning('请先勾选要计算评分的患者')
+    return
+  }
+  const rows = calcSelection.value.slice()
+  const results = { ...calcResult.value }
+  rows.forEach((row) => { results[row.patientId] = { status: 'pending' } })
+  calcResult.value = results
+  calcRunning.value = true
+  let success = 0
+  let failed = 0
+  try {
+    for (const row of rows) {
+      try {
+        const res = await calcScore(row.patientId)
+        results[row.patientId] = {
+          status: 'ok',
+          totalScore: res.data.totalScore,
+          riskLevel: res.data.riskLevel,
+          riskLevelName: res.data.riskLevelName
+        }
+        row.riskScore = res.data.totalScore
+        row.riskLevel = res.data.riskLevel
+        success += 1
+      } catch (e) {
+        results[row.patientId] = { status: 'fail', message: e?.message || '计算失败' }
+        failed += 1
+      }
+      calcResult.value = { ...results }
+    }
+    if (success) {
+      ElMessage.success(`已完成 ${success} 位患者的评分计算${failed ? `，${failed} 位失败` : ''}`)
+      loadList()
+      await loadCalcPatients()
+      // 重新勾选刚计算过的患者，便于查看结果
+      await nextTick()
+      rows.forEach((row) => {
+        const target = calcList.value.find((item) => item.patientId === row.patientId)
+        if (target) calcTableRef.value?.toggleRowSelection(target, true)
+      })
+    }
+  } finally {
+    calcRunning.value = false
+  }
+}
+
 const handleCalc = async () => {
   if (!calcPatientId.value) {
     ElMessage.warning('请选择患者')
@@ -511,6 +662,26 @@ onMounted(loadList)
 }
 :deep(.batch-table .el-table__body-wrapper) {
   overflow-y: auto;
+}
+.batch-table-wrap {
+  margin-bottom: 8px;
+}
+.calc-hint {
+  font-size: 12px;
+  color: var(--t-sub);
+  line-height: 1.6;
+}
+.calc-score {
+  margin: 0 8px;
+  font-weight: 600;
+}
+.calc-error {
+  color: var(--el-color-danger);
+  font-size: 12px;
+}
+.calc-waiting {
+  color: var(--t-dim);
+  font-size: 12px;
 }
 .batch-scroll-tip {
   display: flex;

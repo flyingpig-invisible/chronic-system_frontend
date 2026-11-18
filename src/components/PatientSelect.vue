@@ -10,6 +10,9 @@
     :loading="loading"
     :placeholder="placeholder"
     :style="{ width: width }"
+    :multiple="multiple"
+    :collapse-tags="multiple"
+    :collapse-tags-tooltip="multiple"
     no-data-text="暂无患者"
     @visible-change="onVisibleChange"
     @change="handleChange"
@@ -36,11 +39,12 @@ const props = defineProps({
   modelValue: { type: [Number, String], default: null },
   placeholder: { type: String, default: '输入姓名或手机号搜索' },
   width: { type: String, default: '100%' },
-  autoLoad: { type: Boolean, default: true }
+  autoLoad: { type: Boolean, default: true },
+  multiple: { type: Boolean, default: false }
 })
 const emit = defineEmits(['update:modelValue', 'select'])
 
-const innerValue = ref(props.modelValue)
+const innerValue = ref(props.multiple ? (Array.isArray(props.modelValue) ? props.modelValue : []) : props.modelValue)
 const options = ref([])
 const allOptions = ref([])
 const loading = ref(false)
@@ -51,6 +55,10 @@ let filterTimer = null
 watch(
   () => props.modelValue,
   (v) => {
+    if (props.multiple) {
+      innerValue.value = Array.isArray(v) ? v : []
+      return
+    }
     innerValue.value = v
     if (v && !options.value.some((o) => o.patientId === v)) {
       loadById(v)
@@ -139,6 +147,11 @@ async function loadById(id) {
 
 function handleChange(val) {
   emit('update:modelValue', val)
+  if (props.multiple) {
+    const ids = Array.isArray(val) ? val : []
+    emit('select', ids.map((id) => options.value.find((o) => o.patientId === id)).filter(Boolean))
+    return
+  }
   const found = options.value.find((o) => o.patientId === val)
   emit('select', found || null)
 }
