@@ -292,6 +292,23 @@
                 本次评分为 <b class="num">{{ currentRow.totalScore }}</b> 分。
               </template>
             </div>
+            <div class="score-formula">
+              <span>评分构成：</span>
+              <span>基础加权分 <b class="num">{{ currentDetail.baseScore }}</b></span>
+              <span>预警加分 <b class="num">+{{ currentDetail.warningBonus }}</b></span>
+              <span>= 最终 <b class="num">{{ currentRow.totalScore }}</b> 分</span>
+              <span class="score-formula-tip">（每个指标命中中危规则 +10、高危规则 +20，最低 0、最高 100）</span>
+            </div>
+            <template v-if="currentDetail.warningHits.length">
+              <div class="warning-hit-title">命中预警规则</div>
+              <div v-for="hit in currentDetail.warningHits" :key="hit.indicatorCode" class="warning-hit-item">
+                <el-tag size="small" :type="levelTag(hit.warningLevel)">{{ hit.warningLevelName }}</el-tag>
+                <span class="warning-hit-name">{{ hit.indicatorName }}</span>
+                <span class="num">{{ hit.value }}{{ hit.unit }}</span>
+                <span class="warning-hit-desc">{{ hit.thresholdDesc }}</span>
+                <b class="num">+{{ hit.bonus }}</b>
+              </div>
+            </template>
           </template>
           <template v-else>
             <el-row :gutter="12" class="summary-row">
@@ -408,7 +425,7 @@ const parseDetail = (detailJson) => {
   if (!isObject(json)) return null
 
   const entries = Object.entries(json)
-  const weightItems = entries.filter(([, v]) => isObject(v) && 'indicatorCode' in v)
+  const weightItems = entries.filter(([k, v]) => k !== '_summary' && isObject(v) && 'indicatorCode' in v)
   if (weightItems.length) {
     const items = weightItems.map(([code, v]) => ({
       indicatorCode: v.indicatorCode || code,
@@ -439,11 +456,21 @@ const parseDetail = (detailJson) => {
       g.riskLevelName = levelName(g.riskLevel)
       g.weight = g.items.reduce((s, i) => s + i.weight, 0)
     })
+    // 新记录从 _summary 读取评分构成；旧记录用病种加权分近似作为基础分
+    const summary = isObject(json._summary) ? json._summary : null
+    const baseScore = summary && summary.baseScore !== undefined
+      ? Number(summary.baseScore)
+      : Math.round(groups.reduce((s, g) => s + g.diseaseScore * g.weight, 0))
+    const warningBonus = summary ? Number(summary.warningBonus) || 0 : 0
+    const warningHits = summary && Array.isArray(summary.warningHits) ? summary.warningHits : []
     return {
       kind: 'weights',
       items,
       groups,
-      diseaseNames: groups.filter((g) => g.diseaseCode).map((g) => g.diseaseName).join('、')
+      diseaseNames: groups.filter((g) => g.diseaseCode).map((g) => g.diseaseName).join('、'),
+      baseScore,
+      warningBonus,
+      warningHits
     }
   }
 
@@ -929,6 +956,43 @@ onMounted(loadList)
 }
 .disease-group-weight {
   margin-left: 6px;
+  color: var(--t-dim);
+}
+.score-formula {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--t-sub);
+  background: var(--el-fill-color-light);
+  border-radius: 4px;
+}
+.score-formula-tip {
+  color: var(--t-dim);
+}
+.warning-hit-title {
+  margin: 10px 0 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--t-main);
+}
+.warning-hit-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+  color: var(--t-sub);
+}
+.warning-hit-name {
+  font-weight: 600;
+  color: var(--t-main);
+}
+.warning-hit-desc {
   color: var(--t-dim);
 }
 .detail-foot {

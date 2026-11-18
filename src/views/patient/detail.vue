@@ -184,7 +184,7 @@ const loadDiseaseScores = (detailJson) => {
   }
   const groups = {}
   Object.values(json).forEach((v) => {
-    if (!v || typeof v !== 'object' || !v.diseaseCode) return
+    if (!v || typeof v !== 'object' || !v.diseaseCode || !v.indicatorCode) return
     const g = groups[v.diseaseCode] || (groups[v.diseaseCode] = { diseaseCode: v.diseaseCode, diseaseName: v.diseaseName, score: 0, weight: 0 })
     g.score += (Number(v.riskScore) || 0) * (Number(v.weight) || 0)
     g.weight += Number(v.weight) || 0
