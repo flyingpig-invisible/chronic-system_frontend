@@ -35,6 +35,14 @@
               {{ score.totalScore }}
             </div>
             <el-tag :type="levelTag(score.riskLevel)">{{ score.riskLevelName || levelName(score.riskLevel) }}</el-tag>
+            <div v-if="diseaseScores.length" style="margin-top:10px;text-align:left">
+              <div v-for="d in diseaseScores" :key="d.diseaseCode" class="disease-score-row">
+                <span>{{ d.diseaseName }}</span>
+                <b :style="{ color: levelColor(d.riskLevel) }">{{ d.diseaseScore }}</b>
+                <span class="disease-score-weight">占比 {{ Math.round((d.weight || 0) * 100) }}%</span>
+              </div>
+              <div v-if="diseaseScores.length > 1" class="disease-score-tip">多病共存，综合评分按病种占比加权</div>
+            </div>
             <div style="color:#909399;font-size:12px;margin-top:8px">{{ score.calcTime }}</div>
           </div>
           <el-empty v-else description="暂无评分" :image-size="60" />
@@ -123,6 +131,7 @@ const indicators = ref([])
 const warnings = ref([])
 const plans = ref([])
 const score = ref(null)
+const diseaseScores = ref([])
 
 const levelTag = (l) => ({ 1: 'success', 2: 'warning', 3: 'danger' }[l] || 'info')
 const levelName = (l) => ({ 1: '低危', 2: '中危', 3: '高危' }[l] || '-')
@@ -157,15 +166,68 @@ const loadAll = async () => {
   } catch (e) {}
   try {
     const s = await listScore({ patientId, pageNum: 1, pageSize: 1 })
-    if (s.data.rows && s.data.rows.length) score.value = s.data.rows[0]
+    if (s.data.rows && s.data.rows.length) {
+      score.value = s.data.rows[0]
+      diseaseScores.value = loadDiseaseScores(s.data.rows[0].detailJson)
+    }
   } catch (e) {}
+}
+
+/** 从评分明细 JSON 还原各病种得分（单病种记录返回空数组） */
+const loadDiseaseScores = (detailJson) => {
+  if (!detailJson) return []
+  let json
+  try {
+    json = typeof detailJson === 'string' ? JSON.parse(detailJson) : detailJson
+  } catch (e) {
+    return []
+  }
+  const groups = {}
+  Object.values(json).forEach((v) => {
+    if (!v || typeof v !== 'object' || !v.diseaseCode) return
+    const g = groups[v.diseaseCode] || (groups[v.diseaseCode] = { diseaseCode: v.diseaseCode, diseaseName: v.diseaseName, score: 0, weight: 0 })
+    g.score += (Number(v.riskScore) || 0) * (Number(v.weight) || 0)
+    g.weight += Number(v.weight) || 0
+  })
+  return Object.values(groups).map((g) => {
+    const diseaseScore = Math.round(g.score * 100)
+    return {
+      diseaseCode: g.diseaseCode,
+      diseaseName: g.diseaseName,
+      diseaseScore,
+      weight: g.weight,
+      riskLevel: diseaseScore >= 80 ? '3' : (diseaseScore >= 50 ? '2' : '1')
+    }
+  })
 }
 
 const handleCalc = async () => {
   const res = await calcScore(patientId)
   score.value = { ...res.data, riskLevelName: res.data.riskLevelName }
+  diseaseScores.value = Object.values(res.data.diseases || {})
   ElMessage.success('评分计算完成')
 }
 
 onMounted(loadAll)
 </script>
+
+<style scoped>
+.disease-score-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  margin-bottom: 4px;
+  font-size: 13px;
+  background: var(--el-fill-color-light);
+  border-radius: 4px;
+}
+.disease-score-weight {
+  color: var(--el-text-color-secondary);
+  font-size: 12px;
+}
+.disease-score-tip {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+</style>

@@ -31,3 +31,11 @@ export function saveWeights(data) {
 export function saveWeight(data) {
   return request({ url: '/chronic/score/weight', method: 'post', data })
 }
+
+export function listCombinedWeights(diseaseCodes) {
+  return request({ url: '/chronic/score/weight/combined', method: 'get', params: { diseaseCodes } })
+}
+
+export function saveCombinedWeights(data) {
+  return request({ url: '/chronic/score/weight/combined/save', method: 'post', data })
+}

@@ -3,16 +3,20 @@
     <div class="search-bar">
       <el-form :model="query" inline>
         <el-form-item label="病种">
-          <el-select v-model="query.diseaseCode" placeholder="全部" clearable style="width:150px" @change="loadList">
-            <el-option v-for="d in diseases" :key="d.code" :label="d.name" :value="d.code" />
-          </el-select>
+          <el-radio-group v-model="query.diseaseCode" @change="loadList">
+            <el-radio-button label="">全部</el-radio-button>
+            <el-radio-button v-for="d in diseases" :key="d.code" :label="d.code">{{ d.name }}</el-radio-button>
+          </el-radio-group>
         </el-form-item>
       </el-form>
     </div>
 
     <div class="table-card">
       <div class="table-toolbar">
-        <el-button type="primary" :icon="EditPen" @click="openEdit">修改权重</el-button>
+        <div style="display:flex;gap:8px">
+          <el-button type="primary" :icon="EditPen" @click="openEdit">修改权重</el-button>
+          <el-button :icon="Share" @click="openCombined">病种间权重</el-button>
+        </div>
       </div>
       <el-table v-loading="loading" :data="list" border stripe>
         <el-table-column prop="weightId" label="ID" width="70" />
@@ -103,14 +107,52 @@
         <el-button v-else type="primary" :loading="submitting" @click="handleSubmit">确定</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="combinedVisible" title="病种间权重（多病共存综合评分）" width="640px" :close-on-click-modal="false">
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        title="患者同时患多种慢病时，分别计算各病种评分，再按此处权重合成综合评分。四个病种权重相等即为默认平分（患者患 2 种病则各占 50%）。"
+        style="margin-bottom:12px"
+      />
+      <div class="section-title">
+        <span>各病种占总分比例</span>
+        <span :class="['weight-total', combinedValid ? 'is-ok' : 'is-error']">
+          合计 {{ combinedSumText }}
+        </span>
+      </div>
+      <el-table :data="combinedItems" border size="small">
+        <el-table-column prop="diseaseName" label="病种" width="140" />
+        <el-table-column label="权重(0-1)" width="180">
+          <template #default="{ row }">
+            <el-input-number v-model="row.weight" :min="0" :max="1" :step="0.05" :precision="2" style="width:130px" />
+          </template>
+        </el-table-column>
+        <el-table-column label="占比" min-width="180">
+          <template #default="{ row }">
+            <el-progress :percentage="Math.round((row.weight || 0) * 100)" />
+          </template>
+        </el-table-column>
+      </el-table>
+      <div class="hint">
+        四个病种权重相等时按平分处理（如 0.25×4，或 0.50/0.50 各占一半）；设为不等权重时，各病种权重之和必须等于 1。
+        <el-button link type="primary" @click="fillCombinedRemainder">自动补齐剩余权重</el-button>
+        <el-button link type="primary" @click="resetCombinedAverage">恢复平分</el-button>
+      </div>
+      <template #footer>
+        <el-button @click="combinedVisible = false">取消</el-button>
+        <el-button type="primary" :loading="combinedSubmitting" @click="handleCombinedSubmit">确定</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { EditPen, Plus } from '@element-plus/icons-vue'
-import { listWeight, saveWeights } from '@/api/score'
+import { EditPen, Plus, Share } from '@element-plus/icons-vue'
+import { listWeight, saveWeights, listCombinedWeights, saveCombinedWeights } from '@/api/score'
 
 const diseases = [
   { code: '1', name: '高血压' }, { code: '2', name: '糖尿病' },
@@ -135,7 +177,7 @@ const sumText = computed(() => `${total.value.toFixed(2)}${sumValid.value ? '（
 const loadList = async () => {
   loading.value = true
   try {
-    const res = await listWeight(query)
+    const res = await listWeight({ diseaseCode: query.diseaseCode || undefined })
     list.value = res.data || []
   } finally {
     loading.value = false
@@ -244,6 +286,69 @@ const openEdit = async () => {
   form.diseaseCode = query.diseaseCode || '1'
   await loadDiseaseItems(form.diseaseCode)
   dialogVisible.value = true
+}
+
+/* ---------------- 病种间权重 ---------------- */
+const combinedVisible = ref(false)
+const combinedSubmitting = ref(false)
+const combinedItems = ref([])
+
+const combinedSum = computed(() => Math.round(combinedItems.value.reduce((s, i) => s + (Number(i.weight) || 0), 0) * 100) / 100)
+const combinedValid = computed(() => Math.abs(combinedSum.value - 1) < 1e-6)
+const combinedSumText = computed(() => `${combinedSum.value.toFixed(2)}${combinedValid.value ? '（符合要求）' : '（需为 1.00）'}`)
+
+const openCombined = async () => {
+  const res = await listCombinedWeights(diseases.map((d) => d.code).join(','))
+  combinedItems.value = (res.data || []).map((d) => ({
+    diseaseCode: d.diseaseCode,
+    diseaseName: d.diseaseName || diseaseName(d.diseaseCode),
+    weight: toNumber(d.weight)
+  }))
+  combinedVisible.value = true
+}
+
+const fillCombinedRemainder = () => {
+  if (!combinedItems.value.length) return
+  const sum = combinedItems.value.reduce((s, i) => s + (Number(i.weight) || 0), 0)
+  const last = combinedItems.value[combinedItems.value.length - 1]
+  const rest = Math.round((1 - sum + (Number(last.weight) || 0)) * 100) / 100
+  if (rest < 0 || rest > 1) {
+    return ElMessage.warning('剩余权重超出范围，请先调整其他病种')
+  }
+  last.weight = rest
+}
+
+const resetCombinedAverage = () => {
+  const avg = Math.round((1 / combinedItems.value.length) * 100) / 100
+  combinedItems.value.forEach((item, index) => {
+    item.weight = index === combinedItems.value.length - 1
+      ? Math.round((1 - avg * (combinedItems.value.length - 1)) * 100) / 100
+      : avg
+  })
+}
+
+const handleCombinedSubmit = async () => {
+  for (const item of combinedItems.value) {
+    const weight = Number(item.weight)
+    if (Number.isNaN(weight) || weight < 0 || weight > 1) {
+      return ElMessage.warning(`病种「${item.diseaseName}」的权重必须在 0~1 之间`)
+    }
+  }
+  if (!combinedValid.value) {
+    return ElMessage.warning(`病种权重之和必须为 1，当前为 ${combinedSum.value.toFixed(2)}`)
+  }
+  combinedSubmitting.value = true
+  try {
+    await saveCombinedWeights(combinedItems.value.map((i) => ({
+      diseaseCode: i.diseaseCode,
+      diseaseName: i.diseaseName,
+      weight: Number(i.weight)
+    })))
+    ElMessage.success('病种间权重修改成功')
+    combinedVisible.value = false
+  } finally {
+    combinedSubmitting.value = false
+  }
 }
 
 onMounted(loadList)

@@ -5,6 +5,11 @@
         <el-form-item label="患者">
           <PatientSelect v-model="query.patientId" width="220px" style="display:inline-block" />
         </el-form-item>
+        <el-form-item label="病种">
+          <el-select v-model="query.diseaseCode" placeholder="全部" clearable style="width:130px">
+            <el-option v-for="d in diseases" :key="d.code" :label="d.name" :value="d.code" />
+          </el-select>
+        </el-form-item>
         <el-form-item label="风险等级">
           <el-select v-model="query.riskLevel" placeholder="全部" clearable style="width:120px">
             <el-option label="低危" value="1" />
@@ -40,6 +45,14 @@
             <b :style="{ color: levelColor(row.riskLevel) }">{{ row.totalScore }}</b>
           </template>
         </el-table-column>
+        <el-table-column label="病种" width="130">
+          <template #default="{ row }">
+            <span v-if="detailMap[row.scoreId] && detailMap[row.scoreId].diseaseNames">
+              {{ detailMap[row.scoreId].diseaseNames }}
+            </span>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
         <el-table-column label="风险等级" width="100">
           <template #default="{ row }">
             <el-tag :type="levelTag(row.riskLevel)" size="small">{{ levelName(row.riskLevel) }}</el-tag>
@@ -57,7 +70,7 @@
               <span class="detail-card-text">
                 <span class="detail-card-title">评分明细</span>
                 <span class="detail-card-sub">
-                  {{ detailMap[row.scoreId].kind === 'weights' ? `${detailMap[row.scoreId].items.length} 项指标` : '异常统计' }}
+                  {{ detailSummary(row.scoreId) }}
                 </span>
               </span>
             </div>
@@ -229,41 +242,57 @@
           </div>
 
           <template v-if="currentDetail.kind === 'weights'">
-            <el-table :data="currentDetail.items" border size="small" class="detail-table">
-              <el-table-column label="指标" min-width="150">
-                <template #default="{ row: item }">
-                  <span class="indicator-name">{{ item.indicatorName || item.indicatorCode }}</span>
-                  <span class="indicator-code">{{ item.indicatorCode }}</span>
-                </template>
-              </el-table-column>
-              <el-table-column label="实测值" width="130" align="right">
-                <template #default="{ row: item }">
-                  <span class="num">{{ formatNumber(item.value) }}</span>
-                  <span v-if="item.unit" class="unit">{{ item.unit }}</span>
-                </template>
-              </el-table-column>
-              <el-table-column label="风险度" width="110" align="right">
-                <template #default="{ row: item }">
-                  <span class="num">{{ formatPercent(item.riskScore) }}</span>
-                </template>
-              </el-table-column>
-              <el-table-column label="权重" width="110" align="right">
-                <template #default="{ row: item }">
-                  <span class="num">{{ formatPercent(item.weight) }}</span>
-                </template>
-              </el-table-column>
-              <el-table-column label="加权风险贡献" width="150" align="right">
-                <template #default="{ row: item }">
-                  <span class="num">{{ formatPercent(item.riskScore * item.weight) }}</span>
-                </template>
-              </el-table-column>
-            </el-table>
+            <div v-for="group in currentDetail.groups" :key="group.diseaseCode" class="disease-group">
+              <div class="disease-group-head">
+                <span class="disease-group-name">{{ group.diseaseName }}</span>
+                <span class="disease-group-meta">
+                  病种评分
+                  <b class="num" :style="{ color: levelColor(group.riskLevel) }">{{ group.diseaseScore }}</b>
+                  <el-tag :type="levelTag(group.riskLevel)" size="small">{{ group.riskLevelName }}</el-tag>
+                  <span class="disease-group-weight">占总分 {{ formatPercent(group.weight) }}</span>
+                </span>
+              </div>
+              <el-table :data="group.items" border size="small" class="detail-table">
+                <el-table-column label="指标" min-width="150">
+                  <template #default="{ row: item }">
+                    <span class="indicator-name">{{ item.indicatorName || item.indicatorCode }}</span>
+                    <span class="indicator-code">{{ item.indicatorCode }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="实测值" width="130" align="right">
+                  <template #default="{ row: item }">
+                    <span class="num">{{ formatNumber(item.value) }}</span>
+                    <span v-if="item.unit" class="unit">{{ item.unit }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="风险度" width="110" align="right">
+                  <template #default="{ row: item }">
+                    <span class="num">{{ formatPercent(item.riskScore) }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="权重" width="110" align="right">
+                  <template #default="{ row: item }">
+                    <span class="num">{{ formatPercent(item.weight) }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column label="加权风险贡献" width="150" align="right">
+                  <template #default="{ row: item }">
+                    <span class="num">{{ formatPercent(item.riskScore * item.weight) }}</span>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </div>
             <div class="detail-foot">
-              风险度 = 该指标偏离正常区间的程度；加权风险贡献 = 风险度 × 权重。各项贡献之和（乘以 100）即为本次评分
-              <b class="num">{{ currentRow.totalScore }}</b> 分。
+              风险度 = 该指标偏离正常区间的程度；加权风险贡献 = 风险度 × 权重，逐病种相加得到病种评分。
+              <template v-if="currentDetail.groups.length > 1">
+                综合评分 = 各病种评分 × 病种占比之和，本次为
+                <b class="num">{{ currentRow.totalScore }}</b> 分。
+              </template>
+              <template v-else>
+                本次评分为 <b class="num">{{ currentRow.totalScore }}</b> 分。
+              </template>
             </div>
           </template>
-
           <template v-else>
             <el-row :gutter="12" class="summary-row">
               <el-col v-for="card in currentDetail.cards" :key="card.label" :span="8">
@@ -322,7 +351,12 @@ const currentRow = ref(null)
 const currentDetail = ref(null)
 const detailMap = ref({})
 
-const query = reactive({ pageNum: 1, pageSize: 10, patientId: null, riskLevel: '' })
+const diseases = [
+  { code: '1', name: '高血压' }, { code: '2', name: '2型糖尿病' },
+  { code: '3', name: '冠心病' }, { code: '4', name: '慢阻肺' }
+]
+
+const query = reactive({ pageNum: 1, pageSize: 10, patientId: null, riskLevel: '', diseaseCode: '' })
 
 const levelTag = (l) => ({ 1: 'success', 2: 'warning', 3: 'danger' }[l] || 'info')
 const levelName = (l) => ({ 1: '低危', 2: '中危', 3: '高危' }[l] || '-')
@@ -376,16 +410,40 @@ const parseDetail = (detailJson) => {
   const entries = Object.entries(json)
   const weightItems = entries.filter(([, v]) => isObject(v) && 'indicatorCode' in v)
   if (weightItems.length) {
+    const items = weightItems.map(([code, v]) => ({
+      indicatorCode: v.indicatorCode || code,
+      indicatorName: v.indicatorName || '',
+      value: v.value,
+      unit: v.unit || '',
+      riskScore: Number(v.riskScore) || 0,
+      weight: Number(v.weight) || 0,
+      diseaseCode: v.diseaseCode || '',
+      diseaseName: v.diseaseName || ''
+    }))
+    // 按病种分组：单病种记录的指标未带病种时归入一个默认分组
+    const groups = []
+    const groupMap = {}
+    items.forEach((item) => {
+      const key = item.diseaseCode || ''
+      if (!groupMap[key]) {
+        groupMap[key] = { diseaseCode: key, diseaseName: item.diseaseName || '', items: [], weight: null, diseaseScore: null, riskLevel: '', riskLevelName: '' }
+        groups.push(groupMap[key])
+      }
+      groupMap[key].items.push(item)
+    })
+    groups.forEach((g) => {
+      if (!g.diseaseName) g.diseaseName = '评分明细'
+      const sum = g.items.reduce((s, i) => s + i.riskScore * i.weight, 0)
+      g.diseaseScore = Math.round(sum * 100)
+      g.riskLevel = g.diseaseScore >= 80 ? '3' : (g.diseaseScore >= 50 ? '2' : '1')
+      g.riskLevelName = levelName(g.riskLevel)
+      g.weight = g.items.reduce((s, i) => s + i.weight, 0)
+    })
     return {
       kind: 'weights',
-      items: weightItems.map(([code, v]) => ({
-        indicatorCode: v.indicatorCode || code,
-        indicatorName: v.indicatorName || '',
-        value: v.value,
-        unit: v.unit || '',
-        riskScore: Number(v.riskScore) || 0,
-        weight: Number(v.weight) || 0
-      }))
+      items,
+      groups,
+      diseaseNames: groups.filter((g) => g.diseaseCode).map((g) => g.diseaseName).join('、')
     }
   }
 
@@ -394,6 +452,13 @@ const parseDetail = (detailJson) => {
   }
 
   return null
+}
+
+const detailSummary = (scoreId) => {
+  const d = detailMap.value[scoreId]
+  if (!d) return ''
+  if (d.kind !== 'weights') return '异常统计'
+  return `${d.groups.length} 个病种 ${d.items.length} 项指标`
 }
 
 const openDetail = (row) => {
@@ -422,7 +487,7 @@ const loadList = async () => {
 
 const handleQuery = () => { query.pageNum = 1; loadList() }
 const resetQuery = () => {
-  Object.assign(query, { pageNum: 1, pageSize: 10, patientId: null, riskLevel: '' })
+  Object.assign(query, { pageNum: 1, pageSize: 10, patientId: null, riskLevel: '', diseaseCode: '' })
   loadList()
 }
 
@@ -444,7 +509,7 @@ const calcResult = ref({})
 const calcLoading = ref(false)
 const calcRunning = ref(false)
 
-const batchQueryParams = () => ({ patientId: query.patientId, riskLevel: query.riskLevel })
+const batchQueryParams = () => ({ patientId: query.patientId, riskLevel: query.riskLevel, diseaseCode: query.diseaseCode || undefined })
 
 const loadBatchPage = async (page, append) => {
   batchPageNum.value = page
@@ -649,8 +714,13 @@ const handleCalc = async () => {
     return
   }
   const res = await calcScore(calcPatientId.value)
-  ElMessage.success(`计算完成：${res.data.totalScore} 分（${res.data.riskLevelName}）`)
+  ElMessage.success(`计算完成：${res.data.totalScore} 分（${res.data.riskLevelName}）${diseaseBrief(res.data) ? '，' + diseaseBrief(res.data) : ''}`)
   loadList()
+}
+
+/** 病种评分摘要：各病种得分及占比 */
+const diseaseBrief = (data) => {
+  return Object.values(data.diseases || {}).map((d) => `${d.diseaseName} ${d.diseaseScore} 分（占比 ${Math.round((d.weight || 0) * 100)}%）`).join('，')
 }
 
 onMounted(loadList)
@@ -828,6 +898,37 @@ onMounted(loadList)
 .unit {
   margin-left: 4px;
   font-size: 12px;
+  color: var(--t-dim);
+}
+.disease-group {
+  margin-bottom: 14px;
+}
+.disease-group-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px 10px;
+  margin-bottom: 6px;
+  border-left: 3px solid var(--el-color-primary);
+  background: var(--el-fill-color-light);
+  border-radius: 4px;
+}
+.disease-group-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--t-main);
+}
+.disease-group-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--t-sub);
+}
+.disease-group-weight {
+  margin-left: 6px;
   color: var(--t-dim);
 }
 .detail-foot {
