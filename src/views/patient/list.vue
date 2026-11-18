@@ -50,7 +50,7 @@
         <el-table-column prop="patientNo" label="患者编号" width="120" />
         <el-table-column prop="name" label="姓名" width="90" />
         <el-table-column label="性别" width="60">
-          <template #default="{ row }">{{ row.gender === '0' ? '男' : row.gender === '1' ? '女' : '-' }}</template>
+          <template #default="{ row }">{{ row.gender === '1' ? '男' : row.gender === '0' ? '女' : '-' }}</template>
         </el-table-column>
         <el-table-column prop="age" label="年龄" width="60" />
         <el-table-column prop="phone" label="手机号" width="130" />
@@ -102,8 +102,8 @@
           <el-col :span="12">
             <el-form-item label="性别">
               <el-radio-group v-model="form.gender">
-                <el-radio value="0">男</el-radio>
-                <el-radio value="1">女</el-radio>
+                <el-radio value="1">男</el-radio>
+                <el-radio value="0">女</el-radio>
               </el-radio-group>
             </el-form-item>
           </el-col>
@@ -171,7 +171,7 @@ const formRef = ref()
 
 const query = reactive({ pageNum: 1, pageSize: 10, name: '', phone: '', riskLevel: '', diseaseCode: '' })
 const form = reactive({
-  patientId: null, name: '', gender: '0', birthday: '', phone: '', idCard: '', address: '',
+  patientId: null, name: '', gender: '1', birthday: '', phone: '', idCard: '', address: '',
   diseaseCodes: [], riskLevel: '1', doctorId: null, deptId: null
 })
 const doctorOptionLabel = (d) => (d.deptName ? `${d.realName}（${d.deptName}）` : d.realName)
@@ -214,7 +214,7 @@ const resetQuery = () => {
 
 const resetForm = () => {
   Object.assign(form, {
-    patientId: null, name: '', gender: '0', birthday: '', phone: '', idCard: '', address: '',
+    patientId: null, name: '', gender: '1', birthday: '', phone: '', idCard: '', address: '',
     diseaseCodes: [], riskLevel: '1', doctorId: null, deptId: null
   })
 }

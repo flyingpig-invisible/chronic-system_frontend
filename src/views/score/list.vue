@@ -24,6 +24,7 @@
         <div style="display:flex;gap:8px">
           <PatientSelect v-model="calcPatientId" width="240px" placeholder="选择患者后计算评分" />
           <el-button type="primary" @click="handleCalc">计算评分</el-button>
+          <el-button :icon="Operation" @click="openBatchDialog">操作</el-button>
         </div>
       </div>
       <el-table v-loading="loading" :data="list" row-key="scoreId" border stripe>
@@ -64,16 +65,80 @@
           </template>
         </el-table-column>
         <el-table-column prop="calcTime" label="计算时间" width="170" />
-        <el-table-column label="操作" width="70" align="center" fixed="right">
-          <template #default="{ row }">
-            <el-tooltip content="删除该评分" placement="top">
-              <button class="row-delete" @click.stop="handleDelete(row)">
-                <el-icon><Close /></el-icon>
-              </button>
-            </el-tooltip>
-          </template>
-        </el-table-column>
       </el-table>
+
+      <el-dialog
+        v-model="batchVisible"
+        title="评分记录操作"
+        width="720px"
+        top="8vh"
+        append-to-body
+        @closed="onBatchDialogClosed"
+      >
+        <el-alert
+          type="info"
+          :closable="false"
+          show-icon
+          title="请选择要操作的类型，并勾选需要处理的评分记录"
+          style="margin-bottom:12px"
+        />
+        <el-form label-width="90px" style="margin-bottom:12px">
+          <el-form-item label="操作类型" required>
+            <el-select v-model="batchAction" style="width:220px" @change="onBatchActionChange">
+              <el-option label="删除评分记录" value="delete" />
+            </el-select>
+          </el-form-item>
+        </el-form>
+
+        <el-table
+          v-if="batchAction"
+          ref="batchTableRef"
+          v-loading="batchLoading"
+          :data="batchList"
+          row-key="scoreId"
+          border
+          size="small"
+          height="420"
+          class="batch-table"
+          @selection-change="handleBatchSelection"
+        >
+          <el-table-column type="selection" width="48" reserve-selection />
+          <el-table-column prop="scoreId" label="ID" width="70" />
+          <el-table-column label="患者" width="110">
+            <template #default="{ row }">{{ row.patientName || `ID:${row.patientId}` }}</template>
+          </el-table-column>
+          <el-table-column prop="totalScore" label="风险评分" width="90" align="right" />
+          <el-table-column label="风险等级" width="90">
+            <template #default="{ row }">
+              <el-tag :type="levelTag(row.riskLevel)" size="small">{{ levelName(row.riskLevel) }}</el-tag>
+            </template>
+          </el-table-column>
+          <el-table-column prop="calcTime" label="计算时间" min-width="150" />
+        </el-table>
+        <div v-if="batchAction" class="batch-scroll-tip">
+          <span>共 {{ batchTotal }} 条记录</span>
+          <span v-if="batchLoadingMore">加载中…</span>
+          <span v-else-if="batchList.length >= batchTotal">已全部加载，可上下滚动查看</span>
+          <span v-else>向下滚动继续加载</span>
+        </div>
+
+        <template #footer>
+          <div class="batch-footer">
+            <span class="batch-count">已选 <b>{{ batchSelection.length }}</b> 条</span>
+            <div>
+              <el-button @click="batchVisible = false">取消</el-button>
+              <el-button
+                type="danger"
+                :disabled="!batchSelection.length"
+                :loading="batchDeleting"
+                @click="handleBatchDelete"
+              >
+                删除
+              </el-button>
+            </div>
+          </div>
+        </template>
+      </el-dialog>
 
       <el-dialog
         v-model="detailVisible"
@@ -182,11 +247,11 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, nextTick, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, Refresh, Document, Close } from '@element-plus/icons-vue'
+import { Search, Refresh, Document, Operation } from '@element-plus/icons-vue'
 import PatientSelect from '@/components/PatientSelect.vue'
-import { listScore, calcScore, deleteScore } from '@/api/score'
+import { listScore, calcScore, deleteScores } from '@/api/score'
 
 const loading = ref(false)
 const list = ref([])
@@ -301,25 +366,130 @@ const resetQuery = () => {
   loadList()
 }
 
-const handleDelete = async (row) => {
+const batchVisible = ref(false)
+const batchAction = ref('')
+const batchTableRef = ref()
+const batchSelection = ref([])
+const batchDeleting = ref(false)
+const batchList = ref([])
+const batchTotal = ref(0)
+const batchLoading = ref(false)
+const batchLoadingMore = ref(false)
+const batchPageNum = ref(1)
+const batchPageSize = 50
+
+const batchQueryParams = () => ({ patientId: query.patientId, riskLevel: query.riskLevel })
+
+const loadBatchPage = async (page, append) => {
+  batchPageNum.value = page
+  if (append) batchLoadingMore.value = true
+  else batchLoading.value = true
+  try {
+    const res = await listScore({ ...batchQueryParams(), pageNum: page, pageSize: batchPageSize })
+    const rows = res.data.rows || []
+    batchTotal.value = res.data.total || 0
+    batchList.value = append ? [...batchList.value, ...rows] : rows
+    if (!append) {
+      await nextTick()
+      bindBatchScroll()
+    }
+  } finally {
+    batchLoading.value = false
+    batchLoadingMore.value = false
+  }
+}
+
+const loadMoreBatch = () => {
+  if (batchLoading.value || batchLoadingMore.value) return
+  if (batchList.value.length >= batchTotal.value) return
+  loadBatchPage(batchPageNum.value + 1, true)
+}
+
+/** 监听表格内部滚动容器，滚动到底部附近时自动加载下一页 */
+let batchScrollEl = null
+const onBatchScroll = () => {
+  if (!batchScrollEl) return
+  const remain = batchScrollEl.scrollHeight - batchScrollEl.scrollTop - batchScrollEl.clientHeight
+  if (remain < 60) loadMoreBatch()
+}
+
+const bindBatchScroll = () => {
+  const el = batchTableRef.value?.$el
+  const body = el?.querySelector('.el-scrollbar__wrap')
+    || el?.querySelector('.el-table__body-wrapper .el-scrollbar__wrap')
+    || el?.querySelector('.el-table__body-wrapper')
+  if (!body || body === batchScrollEl) return
+  unbindBatchScroll()
+  batchScrollEl = body
+  batchScrollEl.addEventListener('scroll', onBatchScroll)
+}
+
+const unbindBatchScroll = () => {
+  if (batchScrollEl) {
+    batchScrollEl.removeEventListener('scroll', onBatchScroll)
+    batchScrollEl = null
+  }
+}
+
+const onBatchDialogClosed = () => {
+  unbindBatchScroll()
+  batchSelection.value = []
+  batchTableRef.value?.clearSelection()
+}
+
+const onBatchActionChange = (val) => {
+  if (!val) return
+  batchList.value = []
+  batchTotal.value = 0
+  loadBatchPage(1, false)
+}
+
+const openBatchDialog = async () => {
+  batchAction.value = 'delete'
+  batchSelection.value = []
+  batchList.value = []
+  batchTotal.value = 0
+  batchPageNum.value = 1
+  batchVisible.value = true
+  await loadBatchPage(1, false)
+  batchTableRef.value?.clearSelection()
+}
+
+const handleBatchSelection = (rows) => {
+  batchSelection.value = rows
+}
+
+const handleBatchDelete = async () => {
+  if (!batchSelection.value.length) {
+    ElMessage.warning('请先勾选要删除的评分记录')
+    return
+  }
+  const ids = batchSelection.value.map((row) => row.scoreId)
   try {
     await ElMessageBox.confirm(
-      `确定删除该条评分记录吗？（患者 ${row.patientName || `ID:${row.patientId}`} · ${row.totalScore} 分 · ${row.calcTime || '-'}）删除后不可恢复。`,
-      '删除评分',
+      `确定删除选中的 ${ids.length} 条评分记录吗？删除后不可恢复。`,
+      '批量删除',
       { type: 'warning', confirmButtonText: '删除', cancelButtonText: '取消', confirmButtonClass: 'el-button--danger' }
     )
   } catch (e) {
     return
   }
-  await deleteScore(row.scoreId)
-  ElMessage.success('删除成功')
-  if (currentRow.value && currentRow.value.scoreId === row.scoreId) {
-    detailVisible.value = false
+  batchDeleting.value = true
+  try {
+    await deleteScores(ids)
+    ElMessage.success(`已删除 ${ids.length} 条评分记录`)
+    batchSelection.value = []
+    await loadBatchPage(1, false)
+    if (currentRow.value && ids.includes(currentRow.value.scoreId)) {
+      detailVisible.value = false
+    }
+    if (list.value.length === ids.length && query.pageNum > 1) {
+      query.pageNum -= 1
+    }
+    loadList()
+  } finally {
+    batchDeleting.value = false
   }
-  if (list.value.length === 1 && query.pageNum > 1) {
-    query.pageNum -= 1
-  }
-  loadList()
 }
 
 const handleCalc = async () => {
@@ -336,26 +506,30 @@ onMounted(loadList)
 </script>
 
 <style scoped>
-.row-delete {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  padding: 0;
-  border: 1px solid var(--el-border-color-lighter);
-  border-radius: 50%;
-  background: #fff;
-  color: var(--el-text-color-secondary);
-  font-size: 13px;
-  line-height: 1;
-  cursor: pointer;
-  transition: all 0.2s;
+.batch-table {
+  width: 100%;
 }
-.row-delete:hover {
-  border-color: var(--el-color-danger);
-  background: var(--el-color-danger-light-9);
-  color: var(--el-color-danger);
+:deep(.batch-table .el-table__body-wrapper) {
+  overflow-y: auto;
+}
+.batch-scroll-tip {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--t-dim);
+}
+.batch-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.batch-count {
+  font-size: 13px;
+  color: var(--t-sub);
+}
+.batch-count b {
+  color: var(--el-color-primary);
 }
 .detail-card {
   display: inline-flex;

@@ -16,6 +16,10 @@ export function deleteScore(scoreId) {
   return request({ url: `/chronic/score/${scoreId}`, method: 'delete' })
 }
 
+export function deleteScores(scoreIds) {
+  return request({ url: '/chronic/score/batch', method: 'delete', data: scoreIds })
+}
+
 export function listWeight(params) {
   return request({ url: '/chronic/score/weight/list', method: 'get', params })
 }

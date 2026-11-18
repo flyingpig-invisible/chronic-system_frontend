@@ -12,7 +12,7 @@
           <el-descriptions :column="1" border size="small">
             <el-descriptions-item label="患者编号">{{ patient.patientNo }}</el-descriptions-item>
             <el-descriptions-item label="姓名">{{ patient.name }}</el-descriptions-item>
-            <el-descriptions-item label="性别">{{ patient.gender === '0' ? '男' : patient.gender === '1' ? '女' : '-' }}</el-descriptions-item>
+            <el-descriptions-item label="性别">{{ patient.gender === '1' ? '男' : patient.gender === '0' ? '女' : '-' }}</el-descriptions-item>
             <el-descriptions-item label="年龄">{{ patient.age ?? '-' }}</el-descriptions-item>
             <el-descriptions-item label="手机号">{{ patient.phone }}</el-descriptions-item>
             <el-descriptions-item label="责任医生">{{ patient.doctorName || '-' }}</el-descriptions-item>
