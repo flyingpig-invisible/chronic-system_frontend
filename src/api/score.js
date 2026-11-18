@@ -16,6 +16,10 @@ export function listWeight(params) {
   return request({ url: '/chronic/score/weight/list', method: 'get', params })
 }
 
+export function saveWeights(data) {
+  return request({ url: '/chronic/score/weight/save', method: 'post', data })
+}
+
 export function saveWeight(data) {
   return request({ url: '/chronic/score/weight', method: 'post', data })
 }
