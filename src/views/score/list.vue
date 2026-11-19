@@ -5,11 +5,7 @@
         <el-form-item label="患者">
           <PatientSelect v-model="query.patientId" width="220px" style="display:inline-block" />
         </el-form-item>
-        <el-form-item label="病种">
-          <el-select v-model="query.diseaseCode" placeholder="全部" clearable style="width:130px">
-            <el-option v-for="d in diseases" :key="d.code" :label="d.name" :value="d.code" />
-          </el-select>
-        </el-form-item>
+
         <el-form-item label="风险等级">
           <el-select v-model="query.riskLevel" placeholder="全部" clearable style="width:120px">
             <el-option label="低危" value="1" />
@@ -45,14 +41,7 @@
             <b :style="{ color: levelColor(row.riskLevel) }">{{ row.totalScore }}</b>
           </template>
         </el-table-column>
-        <el-table-column label="病种" width="130">
-          <template #default="{ row }">
-            <span v-if="detailMap[row.scoreId] && detailMap[row.scoreId].diseaseNames">
-              {{ detailMap[row.scoreId].diseaseNames }}
-            </span>
-            <span v-else>-</span>
-          </template>
-        </el-table-column>
+
         <el-table-column label="风险等级" width="100">
           <template #default="{ row }">
             <el-tag :type="levelTag(row.riskLevel)" size="small">{{ levelName(row.riskLevel) }}</el-tag>
@@ -70,7 +59,7 @@
               <span class="detail-card-text">
                 <span class="detail-card-title">评分明细</span>
                 <span class="detail-card-sub">
-                  {{ detailSummary(row.scoreId) }}
+                  {{ detailSummary(row) }}
                 </span>
               </span>
             </div>
@@ -368,12 +357,7 @@ const currentRow = ref(null)
 const currentDetail = ref(null)
 const detailMap = ref({})
 
-const diseases = [
-  { code: '1', name: '高血压' }, { code: '2', name: '2型糖尿病' },
-  { code: '3', name: '冠心病' }, { code: '4', name: '慢阻肺' }
-]
-
-const query = reactive({ pageNum: 1, pageSize: 10, patientId: null, riskLevel: '', diseaseCode: '' })
+const query = reactive({ pageNum: 1, pageSize: 10, patientId: null, riskLevel: '' })
 
 const levelTag = (l) => ({ 1: 'success', 2: 'warning', 3: 'danger' }[l] || 'info')
 const levelName = (l) => ({ 1: '低危', 2: '中危', 3: '高危' }[l] || '-')
@@ -414,6 +398,58 @@ const buildSummaryDetail = (json) => {
   return { kind: 'summary', cards, items }
 }
 
+/** 从单个指标明细对象构造行数据 */
+const toDetailItem = (code, v) => ({
+  indicatorCode: v.indicatorCode || code,
+  indicatorName: v.indicatorName || '',
+  value: v.value,
+  unit: v.unit || '',
+  riskScore: Number(v.riskScore) || 0,
+  weight: Number(v.weight) || 0,
+  diseaseCode: v.diseaseCode || '',
+  diseaseName: v.diseaseName || ''
+})
+
+/** 旧格式：一组指标，按指标自带 diseaseCode 分组 */
+const parseFlatDetail = (json) => {
+  const entries = Object.entries(json)
+  const weightItems = entries.filter(([k, v]) => k !== '_summary' && isObject(v) && 'indicatorCode' in v)
+  if (!weightItems.length) return null
+  const items = weightItems.map(([code, v]) => toDetailItem(code, v))
+  const groups = []
+  const groupMap = {}
+  items.forEach((item) => {
+    const key = item.diseaseCode || ''
+    if (!groupMap[key]) {
+      groupMap[key] = { diseaseCode: key, diseaseName: item.diseaseName || '', items: [] }
+      groups.push(groupMap[key])
+    }
+    groupMap[key].items.push(item)
+  })
+  return { items, groups }
+}
+
+/** 新格式：按病种分组保存 { "1": { sbp: {...} }, "2": { ... }, "_summary": {...} } */
+const parseGroupedDetail = (json) => {
+  const grouped = Object.entries(json).filter(([k, v]) => k !== '_summary' && isObject(v)
+    && Object.values(v).some((item) => isObject(item) && 'indicatorCode' in item))
+  if (!grouped.length) return null
+  const groups = []
+  const items = []
+  grouped.forEach(([diseaseCode, indicatorMap]) => {
+    const groupItems = Object.entries(indicatorMap)
+      .filter(([, v]) => isObject(v) && 'indicatorCode' in v)
+      .map(([code, v]) => toDetailItem(code, { diseaseCode, ...v }))
+    items.push(...groupItems)
+    groups.push({
+      diseaseCode,
+      diseaseName: groupItems.find((i) => i.diseaseName)?.diseaseName || '',
+      items: groupItems
+    })
+  })
+  return { items, groups }
+}
+
 const parseDetail = (detailJson) => {
   if (!detailJson) return null
   let json
@@ -424,30 +460,9 @@ const parseDetail = (detailJson) => {
   }
   if (!isObject(json)) return null
 
-  const entries = Object.entries(json)
-  const weightItems = entries.filter(([k, v]) => k !== '_summary' && isObject(v) && 'indicatorCode' in v)
-  if (weightItems.length) {
-    const items = weightItems.map(([code, v]) => ({
-      indicatorCode: v.indicatorCode || code,
-      indicatorName: v.indicatorName || '',
-      value: v.value,
-      unit: v.unit || '',
-      riskScore: Number(v.riskScore) || 0,
-      weight: Number(v.weight) || 0,
-      diseaseCode: v.diseaseCode || '',
-      diseaseName: v.diseaseName || ''
-    }))
-    // 按病种分组：单病种记录的指标未带病种时归入一个默认分组
-    const groups = []
-    const groupMap = {}
-    items.forEach((item) => {
-      const key = item.diseaseCode || ''
-      if (!groupMap[key]) {
-        groupMap[key] = { diseaseCode: key, diseaseName: item.diseaseName || '', items: [], weight: null, diseaseScore: null, riskLevel: '', riskLevelName: '' }
-        groups.push(groupMap[key])
-      }
-      groupMap[key].items.push(item)
-    })
+  const parsed = parseGroupedDetail(json) || parseFlatDetail(json)
+  if (parsed) {
+    const groups = parsed.groups
     groups.forEach((g) => {
       if (!g.diseaseName) g.diseaseName = '评分明细'
       const sum = g.items.reduce((s, i) => s + i.riskScore * i.weight, 0)
@@ -456,7 +471,6 @@ const parseDetail = (detailJson) => {
       g.riskLevelName = levelName(g.riskLevel)
       g.weight = g.items.reduce((s, i) => s + i.weight, 0)
     })
-    // 新记录从 _summary 读取评分构成；旧记录用病种加权分近似作为基础分
     const summary = isObject(json._summary) ? json._summary : null
     const baseScore = summary && summary.baseScore !== undefined
       ? Number(summary.baseScore)
@@ -465,9 +479,8 @@ const parseDetail = (detailJson) => {
     const warningHits = summary && Array.isArray(summary.warningHits) ? summary.warningHits : []
     return {
       kind: 'weights',
-      items,
+      items: parsed.items,
       groups,
-      diseaseNames: groups.filter((g) => g.diseaseCode).map((g) => g.diseaseName).join('、'),
       baseScore,
       warningBonus,
       warningHits
@@ -480,12 +493,12 @@ const parseDetail = (detailJson) => {
 
   return null
 }
-
-const detailSummary = (scoreId) => {
-  const d = detailMap.value[scoreId]
+/** 主列表只展示综合评分构成；各病种明细在弹窗内查看 */
+const detailSummary = (row) => {
+  const d = detailMap.value[row.scoreId]
   if (!d) return ''
   if (d.kind !== 'weights') return '异常统计'
-  return `${d.groups.length} 个病种 ${d.items.length} 项指标`
+  return `${d.items.length} 项指标 · 基础分 ${d.baseScore} + 预警加分 ${d.warningBonus}`
 }
 
 const openDetail = (row) => {
@@ -514,7 +527,7 @@ const loadList = async () => {
 
 const handleQuery = () => { query.pageNum = 1; loadList() }
 const resetQuery = () => {
-  Object.assign(query, { pageNum: 1, pageSize: 10, patientId: null, riskLevel: '', diseaseCode: '' })
+  Object.assign(query, { pageNum: 1, pageSize: 10, patientId: null, riskLevel: '' })
   loadList()
 }
 
@@ -536,7 +549,7 @@ const calcResult = ref({})
 const calcLoading = ref(false)
 const calcRunning = ref(false)
 
-const batchQueryParams = () => ({ patientId: query.patientId, riskLevel: query.riskLevel, diseaseCode: query.diseaseCode || undefined })
+const batchQueryParams = () => ({ patientId: query.patientId, riskLevel: query.riskLevel })
 
 const loadBatchPage = async (page, append) => {
   batchPageNum.value = page

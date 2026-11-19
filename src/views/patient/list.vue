@@ -123,11 +123,8 @@
           </el-col>
           <el-col :span="12">
             <el-form-item label="风险等级">
-              <el-select v-model="form.riskLevel" style="width:100%">
-                <el-option label="低危" value="1" />
-                <el-option label="中危" value="2" />
-                <el-option label="高危" value="3" />
-              </el-select>
+              <!-- 风险等级由健康评分计算得出，不支持手工修改 -->
+              <el-input :model-value="levelName(form.riskLevel)" disabled placeholder="暂无评分，默认为低危" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
