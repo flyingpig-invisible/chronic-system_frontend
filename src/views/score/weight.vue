@@ -54,23 +54,45 @@
           <el-button size="small" type="primary" plain :icon="Plus" @click="addIndicator">新增指标</el-button>
         </div>
         <el-table :data="form.items" border size="small" empty-text="请至少添加一个指标">
-          <el-table-column label="指标编码" width="190">
+          <el-table-column label="指标" min-width="240">
             <template #default="{ row }">
-              <el-input v-model="row.indicatorCode" maxlength="32" placeholder="如 sbp" />
+              <el-select
+                v-model="row.indicatorCode"
+                filterable
+                placeholder="请选择指标"
+                style="width:100%"
+                :disabled="!isNewRow(row)"
+                @change="(code) => onItemIndicatorChange(row, code)"
+              >
+                <el-option
+                  v-for="ind in selectableIndicators(row.indicatorCode)"
+                  :key="ind.indicatorCode"
+                  :label="ind.unit ? `${ind.indicatorName}（${ind.unit}）` : ind.indicatorName"
+                  :value="ind.indicatorCode"
+                />
+              </el-select>
             </template>
           </el-table-column>
-          <el-table-column label="指标名称" min-width="180">
+          <el-table-column label="指标编码" width="120">
             <template #default="{ row }">
-              <el-input v-model="row.indicatorName" maxlength="50" placeholder="如 收缩压" />
+              <span class="code-text">{{ row.indicatorCode || '-' }}</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="单位" width="100">
+            <template #default="{ row }">
+              <span class="unit-text">{{ indicatorUnit(row.indicatorCode) || '-' }}</span>
             </template>
           </el-table-column>
           <el-table-column label="操作" width="80" align="center">
-            <template #default="{ $index }">
-              <el-button link type="danger" @click="removeIndicator($index)">移除</el-button>
+            <template #default="{ $index, row }">
+              <el-button v-if="isNewRow(row)" link type="danger" @click="removeIndicator($index)">移除</el-button>
+              <el-button v-else link type="warning" @click="clearIndicator(row)">清空</el-button>
             </template>
           </el-table-column>
         </el-table>
-        <div class="hint">原有指标已自动带入，可修改名称或编码；新增指标请填写自定义编码与名称。</div>
+        <div class="hint">
+          指标需从「系统管理 → 指标管理」中已维护的指标里选择；已有指标的权重配置可直接进入下一步调整权重。
+        </div>
       </div>
 
       <div v-else class="step-card">
@@ -153,6 +175,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { EditPen, Plus, Share } from '@element-plus/icons-vue'
 import { listWeight, saveWeights, listCombinedWeights, saveCombinedWeights } from '@/api/score'
+import { listIndicator as indicatorList } from '@/api/system'
 
 const diseases = [
   { code: '1', name: '高血压' }, { code: '2', name: '糖尿病' },
@@ -189,7 +212,8 @@ const loadDiseaseItems = async (code) => {
   form.items = (res.data || []).map((w) => ({
     indicatorCode: w.indicatorCode,
     indicatorName: w.indicatorName,
-    weight: toNumber(w.weight)
+    weight: toNumber(w.weight),
+    saved: true
   }))
 }
 
@@ -197,8 +221,50 @@ const onDiseaseChange = async (code) => {
   await loadDiseaseItems(code)
 }
 
+/** 指标库（系统管理 → 指标管理），新增指标只能从中选择 */
+const indicatorOptions = ref([])
+const indicatorMap = computed(() => {
+  const map = {}
+  indicatorOptions.value.forEach((ind) => { map[ind.indicatorCode] = ind })
+  return map
+})
+const indicatorUnit = (code) => (code && indicatorMap.value[code] ? indicatorMap.value[code].unit : '')
+
+/** 新添加的空行可自由选指标；已配置的旧行只读，避免破坏既有权重 */
+const isNewRow = (row) => !row.saved
+
+const loadIndicatorOptions = async () => {
+  try {
+    const res = await indicatorList({ pageNum: 1, pageSize: 500, status: '0' })
+    indicatorOptions.value = res.data.rows || []
+  } catch (e) {
+    indicatorOptions.value = []
+  }
+}
+
+/** 下拉候选：已在其他行选中的指标不再重复出现，当前行自身的值保留 */
+const selectableIndicators = (currentCode) => {
+  const used = new Set(form.items.map((i) => i.indicatorCode).filter(Boolean))
+  return indicatorOptions.value.filter((ind) => ind.indicatorCode === currentCode || !used.has(ind.indicatorCode))
+}
+
+/** 选中指标后回填名称，并清掉可能残留的旧名称 */
+const onItemIndicatorChange = (row, code) => {
+  const ind = indicatorMap.value[code]
+  row.indicatorName = ind ? ind.indicatorName : ''
+  if (!code) row.unit = ''
+}
+
 const addIndicator = () => {
-  form.items.push({ indicatorCode: '', indicatorName: '', weight: 0 })
+  form.items.push({ indicatorCode: '', indicatorName: '', weight: 0, saved: false })
+}
+
+/** 已保存的指标清空后等同于新增一行 */
+const clearIndicator = (row) => {
+  row.indicatorCode = ''
+  row.indicatorName = ''
+  row.weight = 0
+  row.saved = false
 }
 
 const removeIndicator = (index) => {
@@ -213,24 +279,24 @@ const goNext = () => {
     return ElMessage.warning('请至少指定一个指标')
   }
   const seen = new Set()
-  const empty = []
+  let emptyCount = 0
   for (const item of form.items) {
     const code = (item.indicatorCode || '').trim()
-    const name = (item.indicatorName || '').trim()
-    if (!code || !name) {
-      empty.push(name || code || '未命名指标')
+    if (!code) {
+      emptyCount++
       continue
     }
-    if (!/^[A-Za-z0-9_]+$/.test(code)) {
-      return ElMessage.warning(`指标编码「${code}」只能包含字母、数字和下划线`)
+    if (!indicatorMap.value[code]) {
+      return ElMessage.warning(`指标「${code}」不在系统指标库中，请从下拉列表中选择`)
     }
+    item.indicatorName = indicatorMap.value[code].indicatorName
     if (seen.has(code)) {
-      return ElMessage.warning(`指标编码「${code}」重复`)
+      return ElMessage.warning(`指标「${item.indicatorName}」重复`)
     }
     seen.add(code)
   }
-  if (empty.length) {
-    return ElMessage.warning(`请补全指标名称与编码：${empty.join('、')}`)
+  if (emptyCount) {
+    return ElMessage.warning('存在未选择指标的空白行，请选择指标或移除该行')
   }
   step.value = 1
 }
@@ -284,7 +350,7 @@ const handleSubmit = async () => {
 const openEdit = async () => {
   step.value = 0
   form.diseaseCode = query.diseaseCode || '1'
-  await loadDiseaseItems(form.diseaseCode)
+  await Promise.all([loadDiseaseItems(form.diseaseCode), loadIndicatorOptions()])
   dialogVisible.value = true
 }
 
@@ -351,7 +417,10 @@ const handleCombinedSubmit = async () => {
   }
 }
 
-onMounted(loadList)
+onMounted(() => {
+  loadList()
+  loadIndicatorOptions()
+})
 </script>
 
 <style scoped>
