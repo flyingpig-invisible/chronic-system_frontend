@@ -12,11 +12,16 @@
 
     <div class="table-card">
       <div class="table-toolbar">
-        <el-button v-permission="['system:role:add']" type="primary" :icon="Plus" @click="openAdd">新增角色</el-button>
+        <el-button v-if="isSysAdmin" v-permission="['system:role:add']" type="primary" :icon="Plus" @click="openAdd">新增角色</el-button>
       </div>
       <el-table v-loading="loading" :data="list" border stripe>
         <el-table-column prop="roleId" label="ID" width="70" />
-        <el-table-column prop="roleName" label="角色名称" width="150" />
+        <el-table-column label="角色名称" width="190">
+          <template #default="{ row }">
+            <span>{{ row.roleName }}</span>
+            <el-tag v-if="isBuiltIn(row)" type="info" size="small" effect="plain" class="builtin-tag">内置</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="roleKey" label="权限字符" width="150" />
         <el-table-column prop="orderNum" label="排序" width="80" />
         <el-table-column label="状态" width="90">
@@ -28,8 +33,12 @@
         <el-table-column label="操作" width="230" fixed="right">
           <template #default="{ row }">
             <el-button v-permission="['system:role:edit']" type="primary" link size="small" @click="openEdit(row)">编辑</el-button>
-            <el-button v-permission="['system:role:edit']" type="success" link size="small" @click="openMenu(row)">分配权限</el-button>
-            <el-button v-permission="['system:role:remove']" type="danger" link size="small" @click="handleDelete(row)">删除</el-button>
+            <el-button v-if="isSysAdmin" v-permission="['system:role:auth']" type="success" link size="small" @click="openMenu(row)">分配权限</el-button>
+            <el-button
+              v-if="!isBuiltIn(row)"
+              v-permission="['system:role:remove']"
+              type="danger" link size="small" @click="handleDelete(row)"
+            >删除</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -43,7 +52,9 @@
     <el-dialog v-model="dialogVisible" :title="form.roleId ? '编辑角色' : '新增角色'" width="500px">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
         <el-form-item label="角色名称" prop="roleName"><el-input v-model="form.roleName" /></el-form-item>
-        <el-form-item label="权限字符" prop="roleKey"><el-input v-model="form.roleKey" placeholder="如 doctor" /></el-form-item>
+        <el-form-item label="权限字符" prop="roleKey">
+          <el-input v-model="form.roleKey" placeholder="如 doctor" :disabled="!!form.roleId && isBuiltInKey(form.roleKey)" />
+        </el-form-item>
         <el-form-item label="排序"><el-input-number v-model="form.orderNum" :min="0" style="width:100%" /></el-form-item>
         <el-form-item label="状态">
           <el-radio-group v-model="form.status">
@@ -78,10 +89,11 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, Plus } from '@element-plus/icons-vue'
 import { listRole, addRole, updateRole, delRole, getRoleMenuIds, setRoleMenu, menuTree } from '@/api/system'
+import { useUserStore } from '@/store/user'
 
 const loading = ref(false)
 const list = ref([])
@@ -95,6 +107,14 @@ const currentRoleId = ref(null)
 
 const query = reactive({ pageNum: 1, pageSize: 10, roleName: '' })
 const form = reactive({ roleId: null, roleName: '', roleKey: '', orderNum: 0, status: '0', remark: '' })
+const userStore = useUserStore()
+/** 仅系统管理员可新增角色 */
+const isSysAdmin = computed(() => userStore.roles.includes('admin'))
+/** 内置角色：不可删除，权限字符不可修改 */
+const BUILT_IN_ROLE_KEYS = ['admin', 'doctor', 'family']
+const isBuiltIn = (row) => !!row && BUILT_IN_ROLE_KEYS.includes(row.roleKey)
+const isBuiltInKey = (key) => BUILT_IN_ROLE_KEYS.includes(key)
+
 const rules = {
   roleName: [{ required: true, message: '请输入角色名称', trigger: 'blur' }],
   roleKey: [{ required: true, message: '请输入权限字符', trigger: 'blur' }]
@@ -143,11 +163,17 @@ const handleSubmit = () => {
 }
 
 const handleDelete = (row) => {
-  ElMessageBox.confirm(`确定删除角色「${row.roleName}」吗？`, '提示', { type: 'warning' }).then(async () => {
-    await delRole(row.roleId)
-    ElMessage.success('删除成功')
-    loadList()
-  })
+  if (isBuiltIn(row)) {
+    ElMessage.warning('系统内置角色不允许删除')
+    return
+  }
+  ElMessageBox.confirm(`确定删除角色「${row.roleName}」吗？删除后该角色的菜单授权也会一并清除。`, '提示', { type: 'warning' })
+    .then(async () => {
+      await delRole(row.roleId)
+      ElMessage.success('删除成功')
+      loadList()
+    })
+    .catch(() => {})
 }
 
 const openMenu = async (row) => {
@@ -172,3 +198,9 @@ const submitMenu = async () => {
 
 onMounted(loadList)
 </script>
+
+<style scoped>
+.builtin-tag {
+  margin-left: 6px;
+}
+</style>
