@@ -144,3 +144,24 @@ export function updateDictData(data) {
 export function delDictData(dictCode) {
   return request({ url: `/system/dict/data/${dictCode}`, method: 'delete' })
 }
+
+// ========== 指标 ==========
+export function listIndicator(params) {
+  return request({ url: '/system/indicator/list', method: 'get', params })
+}
+
+export function indicatorOptions() {
+  return request({ url: '/system/indicator/options', method: 'get' })
+}
+
+export function addIndicator(data) {
+  return request({ url: '/system/indicator', method: 'post', data })
+}
+
+export function updateIndicator(data) {
+  return request({ url: '/system/indicator', method: 'put', data })
+}
+
+export function delIndicator(indicatorIds) {
+  return request({ url: `/system/indicator/${indicatorIds}`, method: 'delete' })
+}

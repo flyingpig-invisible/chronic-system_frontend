@@ -234,6 +234,12 @@ export const routes = [
         name: 'SysDict',
         component: () => import('@/views/system/dict.vue'),
         meta: { title: '字典管理', icon: 'Collection' }
+      },
+      {
+        path: 'indicator',
+        name: 'SysIndicator',
+        component: () => import('@/views/system/indicator.vue'),
+        meta: { title: '指标管理', icon: 'Odometer' }
       }
     ]
   },
