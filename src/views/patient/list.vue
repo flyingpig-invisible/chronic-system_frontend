@@ -71,7 +71,13 @@
             <span v-else>0</span>
           </template>
         </el-table-column>
-        <el-table-column prop="deptName" label="所属科室" width="120" />
+        <el-table-column prop="deptName" label="责任科室" width="120" />
+        <el-table-column label="可见科室" min-width="150">
+          <template #default="{ row }">
+            <el-tag v-for="n in row.deptNames || []" :key="n" size="small" style="margin-right:4px">{{ n }}</el-tag>
+            <span v-if="!(row.deptNames || []).length" style="color:#909399">-</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="doctorName" label="责任医生" width="100" />
         <el-table-column label="操作" width="180" fixed="right">
           <template #default="{ row }">
@@ -135,8 +141,15 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="所属科室">
+            <el-form-item label="责任科室">
               <el-input :model-value="deptNameOf(form.doctorId)" disabled placeholder="由责任医生自动带出" />
+            </el-form-item>
+          </el-col>
+          <el-col :span="24">
+            <el-form-item label="可见科室" prop="deptIds">
+              <el-select v-model="form.deptIds" multiple clearable placeholder="选择可见科室：只有这些科室的医生能查看该患者" style="width:100%">
+                <el-option v-for="d in allDepts" :key="d.deptId" :label="d.deptName" :value="d.deptId" />
+              </el-select>
             </el-form-item>
           </el-col>
         </el-row>
@@ -169,7 +182,7 @@ const formRef = ref()
 const query = reactive({ pageNum: 1, pageSize: 10, name: '', phone: '', riskLevel: '', diseaseCode: '' })
 const form = reactive({
   patientId: null, name: '', gender: '1', birthday: '', phone: '', idCard: '', address: '',
-  diseaseCodes: [], riskLevel: '1', doctorId: null, deptId: null
+  diseaseCodes: [], riskLevel: '1', doctorId: null, deptId: null, deptIds: []
 })
 const doctorOptionLabel = (d) => (d.deptName ? `${d.realName}（${d.deptName}）` : d.realName)
 // 科室由责任医生自动带出，仅供展示
@@ -177,7 +190,15 @@ const deptNameOf = (doctorId) => {
   const d = doctors.value.find((x) => x.userId === doctorId)
   return d ? d.deptName || '未分配科室' : ''
 }
-// 科室筛选下拉
+// 科室筛选与可见科室选项：科室树展开成扁平列表，下拉更好用
+const flattenDepts = (nodes, out) => {
+  (nodes || []).forEach((n) => {
+    out.push({ deptId: n.deptId, deptName: n.deptName })
+    flattenDepts(n.children, out)
+  })
+  return out
+}
+const allDepts = computed(() => flattenDepts(depts.value, []))
 const queryDeptOptions = computed(() => depts.value || [])
 
 const rules = {
@@ -209,11 +230,13 @@ const resetQuery = () => {
   loadList()
 }
 
+const emptyForm = () => ({
+  patientId: null, name: '', gender: '1', birthday: '', phone: '', idCard: '', address: '',
+  diseaseCodes: [], riskLevel: '1', doctorId: null, deptId: null, deptIds: []
+})
+
 const resetForm = () => {
-  Object.assign(form, {
-    patientId: null, name: '', gender: '1', birthday: '', phone: '', idCard: '', address: '',
-    diseaseCodes: [], riskLevel: '1', doctorId: null, deptId: null
-  })
+  Object.assign(form, emptyForm())
 }
 
 const openAdd = () => {
@@ -227,7 +250,7 @@ const openEdit = async (row) => {
     patientId: row.patientId, name: row.name, gender: row.gender, birthday: row.birthday,
     phone: row.phone, idCard: row.idCard, address: row.address,
     diseaseCodes: row.diseaseCodes || [], riskLevel: row.riskLevel,
-    doctorId: row.doctorId, deptId: row.deptId
+    doctorId: row.doctorId, deptId: row.deptId, deptIds: (row.deptIds || []).slice()
   })
   dialogVisible.value = true
 }
@@ -235,6 +258,11 @@ const openEdit = async (row) => {
 const handleSubmit = () => {
   formRef.value.validate(async (valid) => {
     if (!valid) return
+    // 可见科室至少要有一个，否则该患者对所有医生都不可见
+    if (!form.deptIds || !form.deptIds.length) {
+      ElMessage.warning('请至少选择一个可见科室')
+      return
+    }
     if (form.patientId) {
       await updatePatient(form)
       ElMessage.success('修改成功')

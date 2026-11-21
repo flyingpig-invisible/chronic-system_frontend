@@ -126,12 +126,6 @@ export const routes = [
         name: 'ClinicList',
         component: () => import('@/views/clinic/list.vue'),
         meta: { title: '线上就诊', icon: 'FirstAidKit' }
-      },
-      {
-        path: 'referral',
-        name: 'ReferralList',
-        component: () => import('@/views/clinic/referral.vue'),
-        meta: { title: '转诊管理', icon: 'Switch' }
       }
     ]
   },

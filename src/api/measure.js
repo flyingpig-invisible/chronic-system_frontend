@@ -33,5 +33,6 @@ export function delMeasure(measureIds) {
 }
 
 export function getMeasureTrend(patientId, params) {
-  return request({ url: `/chronic/measure/trend/${patientId}`, method: 'get', params })
+  // 后端趋势接口挂在患者模块下：/chronic/patient/{patientId}/trend
+  return request({ url: `/chronic/patient/${patientId}/trend`, method: 'get', params })
 }

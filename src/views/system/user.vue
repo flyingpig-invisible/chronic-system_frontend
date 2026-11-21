@@ -79,8 +79,8 @@
             <el-radio value="2">管理员</el-radio>
           </el-radio-group>
         </el-form-item>
-        <el-form-item label="所属科室">
-          <el-select v-model="form.deptId" clearable style="width:100%">
+        <el-form-item label="所属科室" prop="deptId">
+          <el-select v-model="form.deptId" clearable placeholder="请选择所属科室（医生必填）" style="width:100%">
             <el-option v-for="d in depts" :key="d.deptId" :label="d.deptName" :value="d.deptId" />
           </el-select>
         </el-form-item>
@@ -113,10 +113,12 @@ const canEditUsername = computed(() => !form.userId || form.userId === userStore
 
 const query = reactive({ pageNum: 1, pageSize: 10, username: '', realName: '', userType: '' })
 const form = reactive({ userId: null, username: '', password: '', realName: '', phone: '', userType: '1', deptId: null, title: '' })
-const rules = {
+// 科室仅对医生必填：患者可见范围按科室划分，没有科室的医生看不到任何患者
+const rules = computed(() => ({
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
-  realName: [{ required: true, message: '请输入姓名', trigger: 'blur' }]
-}
+  realName: [{ required: true, message: '请输入姓名', trigger: 'blur' }],
+  deptId: form.userType === '1' ? [{ required: true, message: '医生必须选择所属科室', trigger: 'change' }] : []
+}))
 
 const loadList = async () => {
   loading.value = true
