@@ -65,7 +65,11 @@
 
     <el-dialog v-model="dialogVisible" :title="form.userId ? '编辑用户' : '新增用户'" width="520px">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
-        <el-form-item label="用户名" prop="username"><el-input v-model="form.username" :disabled="!!form.userId" /></el-form-item>
+        <el-form-item label="用户名" prop="username">
+          <el-input v-model="form.username" :disabled="!canEditUsername" />
+          <div v-if="form.userId && !canEditUsername" class="username-tip">登录账号仅本人可修改</div>
+          <div v-else-if="canEditUsername" class="username-tip">4~20 位，以字母或数字开头，可含字母、数字、下划线</div>
+        </el-form-item>
         <el-form-item v-if="!form.userId" label="初始密码"><el-input v-model="form.password" placeholder="默认 123456" /></el-form-item>
         <el-form-item label="姓名" prop="realName"><el-input v-model="form.realName" /></el-form-item>
         <el-form-item label="手机号"><el-input v-model="form.phone" /></el-form-item>
@@ -91,10 +95,11 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, Plus } from '@element-plus/icons-vue'
 import { listUser, addUser, updateUser, delUser, resetUserPwd, changeUserStatus, deptTree } from '@/api/system'
+import { useUserStore } from '@/store/user'
 
 const loading = ref(false)
 const list = ref([])
@@ -102,6 +107,9 @@ const total = ref(0)
 const depts = ref([])
 const dialogVisible = ref(false)
 const formRef = ref()
+const userStore = useUserStore()
+// 用户名即登录账号：只有编辑自己时才允许修改
+const canEditUsername = computed(() => !form.userId || form.userId === userStore.userId)
 
 const query = reactive({ pageNum: 1, pageSize: 10, username: '', realName: '', userType: '' })
 const form = reactive({ userId: null, username: '', password: '', realName: '', phone: '', userType: '1', deptId: null, title: '' })
