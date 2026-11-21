@@ -12,6 +12,10 @@ export function addMeasure(data) {
   return request({ url: '/chronic/measure', method: 'post', data })
 }
 
+export function addMeasureOnce(data) {
+  return request({ url: '/chronic/measure/once', method: 'post', data })
+}
+
 export function addMeasureBatch(data) {
   return request({ url: '/chronic/measure/batch', method: 'post', data })
 }

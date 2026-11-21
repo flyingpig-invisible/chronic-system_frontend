@@ -7,7 +7,7 @@
         </el-form-item>
         <el-form-item label="指标">
           <el-select v-model="query.indicatorCode" placeholder="全部" clearable style="width:130px">
-            <el-option v-for="i in indicators" :key="i.code" :label="i.name" :value="i.code" />
+            <el-option v-for="i in indicators" :key="i.indicatorCode" :label="i.indicatorName" :value="i.indicatorCode" />
           </el-select>
         </el-form-item>
         <el-form-item label="状态">
@@ -88,7 +88,7 @@
       </div>
     </div>
 
-    <el-dialog v-model="dialogVisible" title="录入监测数据" width="520px">
+    <el-dialog v-model="dialogVisible" title="录入监测数据（可一次录入多个指标）" width="640px">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
         <el-form-item label="患者" prop="patientId">
           <PatientSelect v-model="form.patientId" />
@@ -101,15 +101,24 @@
             <el-option label="慢阻肺" value="4" />
           </el-select>
         </el-form-item>
-        <el-form-item label="指标" prop="indicatorCode">
-          <el-select v-model="form.indicatorCode" style="width:100%" @change="onIndicatorChange">
-            <el-option v-for="i in indicators" :key="i.code" :label="i.name" :value="i.code" />
-          </el-select>
+        <el-form-item label="指标" required>
+          <div class="entry-list">
+            <div v-for="(e, idx) in form.entries" :key="idx" class="entry-row">
+              <el-select v-model="e.indicatorCode" filterable placeholder="选择指标" style="width:180px"
+                @change="() => onEntryChange(e)">
+                <el-option v-for="i in indicators" :key="i.indicatorCode" :label="i.indicatorName"
+                  :value="i.indicatorCode" :disabled="isUsed(i.indicatorCode, idx)" />
+              </el-select>
+              <el-input-number v-model="e.value" :precision="2" :step="unitOf(e) === '小时' ? 0.5 : 1"
+                :min="0" :max="unitOf(e) === '小时' ? 24 : undefined" placeholder="数值" style="width:130px" />
+              <span class="entry-unit">{{ unitOf(e) || '单位' }}</span>
+              <el-button type="danger" link :icon="Delete" :disabled="form.entries.length <= 1"
+                @click="removeEntry(idx)" />
+            </div>
+            <el-button type="primary" link :icon="Plus" :disabled="indicators.length <= form.entries.length"
+              @click="addEntry">添加指标</el-button>
+          </div>
         </el-form-item>
-        <el-form-item label="数值" prop="value">
-          <el-input-number v-model="form.value" :precision="2" :step="1" style="width:100%" />
-        </el-form-item>
-        <el-form-item label="单位"><el-input v-model="form.unit" disabled /></el-form-item>
         <el-form-item label="测量时间">
           <el-date-picker v-model="form.measureTime" type="datetime" value-format="YYYY-MM-DD HH:mm:ss" style="width:100%" />
         </el-form-item>
@@ -131,8 +140,9 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, Refresh, Plus } from '@element-plus/icons-vue'
-import { listMeasureGrouped, addMeasure, delMeasureGroup } from '@/api/measure'
+import { Search, Refresh, Plus, Delete } from '@element-plus/icons-vue'
+import { listMeasureGrouped, addMeasureOnce, delMeasureGroup } from '@/api/measure'
+import { indicatorOptions } from '@/api/system'
 
 const loading = ref(false)
 const groups = ref([])
@@ -141,30 +151,49 @@ const dialogVisible = ref(false)
 const formRef = ref()
 const timeRange = ref([])
 
-const indicators = [
-  { code: 'spo2', name: '血氧', unit: '%' },
-  { code: 'glu', name: '血糖', unit: 'mmol/L' },
-  { code: 'sbp', name: '收缩压', unit: 'mmHg' },
-  { code: 'dbp', name: '舒张压', unit: 'mmHg' },
-  { code: 'hr', name: '心率', unit: '次/分' },
-  { code: 'rr', name: '呼吸频率', unit: '次/分' },
-  { code: 'sleep', name: '睡眠时长', unit: '小时' }
-]
+// 指标只能从指标字典（sys_indicator）中选择，页面本身不再写死任何指标
+const indicators = ref([])
 
 const query = reactive({
   pageNum: 1, pageSize: 10, patientId: null,
   indicatorCode: '', abnormalFlag: '', beginTime: '', endTime: ''
 })
 const form = reactive({
-  patientId: null, diseaseCode: '1', indicatorCode: 'spo2', value: null, unit: '%',
-  measureTime: '', dataSource: '2'
+  patientId: null, diseaseCode: '1', measureTime: '', dataSource: '2',
+  entries: [{ indicatorCode: '', value: null }]
 })
 const rules = {
-  patientId: [{ required: true, message: '请选择患者', trigger: 'change' }],
-  indicatorCode: [{ required: true, message: '请选择指标', trigger: 'change' }],
-  value: [{ required: true, message: '请输入数值', trigger: 'blur' }]
+  patientId: [{ required: true, message: '请选择患者', trigger: 'change' }]
 }
 
+const loadIndicators = async () => {
+  try {
+    const res = await indicatorOptions()
+    indicators.value = res.data || []
+  } catch (e) {
+    indicators.value = []
+  }
+}
+
+const unitOf = (entry) => {
+  const i = indicators.value.find((x) => x.indicatorCode === entry.indicatorCode)
+  return i ? i.unit : ''
+}
+
+const isUsed = (code, idx) => form.entries.some((e, i) => i !== idx && e.indicatorCode === code)
+
+const onEntryChange = (entry) => {
+  entry.value = null
+}
+
+const addEntry = () => {
+  form.entries.push({ indicatorCode: '', value: null })
+}
+
+const removeEntry = (idx) => {
+  if (form.entries.length <= 1) return
+  form.entries.splice(idx, 1)
+}
 const loadList = async () => {
   loading.value = true
   try {
@@ -188,29 +217,43 @@ const resetQuery = () => {
   loadList()
 }
 
-const onIndicatorChange = (code) => {
-  const i = indicators.find((x) => x.code === code)
-  form.unit = i ? i.unit : ''
-}
-
 const openAdd = () => {
   Object.assign(form, {
-    patientId: null, diseaseCode: '1', indicatorCode: 'spo2', value: null, unit: '%',
-    measureTime: '', dataSource: '2'
+    patientId: null, diseaseCode: '1', measureTime: '', dataSource: '2',
+    entries: [{ indicatorCode: '', value: null }]
   })
   dialogVisible.value = true
 }
 
 const handleSubmit = () => {
+  const entries = form.entries.filter((e) => e.indicatorCode)
+  if (!entries.length) {
+    ElMessage.warning('请至少选择一项指标')
+    return
+  }
+  if (entries.some((e) => e.value === null || e.value === undefined || e.value === '')) {
+    ElMessage.warning('请填写每个指标的数值')
+    return
+  }
+  const codes = entries.map((e) => e.indicatorCode)
+  if (new Set(codes).size !== codes.length) {
+    ElMessage.warning('同一指标不能重复录入')
+    return
+  }
   formRef.value.validate(async (valid) => {
     if (!valid) return
-    await addMeasure(form)
-    ElMessage.success('录入成功')
+    await addMeasureOnce({
+      patientId: form.patientId,
+      diseaseCode: form.diseaseCode,
+      measureTime: form.measureTime || null,
+      dataSource: form.dataSource,
+      entries: entries.map((e) => ({ indicatorCode: e.indicatorCode, value: e.value }))
+    })
+    ElMessage.success('已录入 ' + entries.length + ' 项指标')
     dialogVisible.value = false
     loadList()
   })
 }
-
 const handleDeleteGroup = (g) => {
   ElMessageBox.confirm(
     '确定删除 ' + g.patientName + ' 在 ' + g.measureTime + ' 的整组监测数据吗？',
@@ -223,7 +266,10 @@ const handleDeleteGroup = (g) => {
   })
 }
 
-onMounted(loadList)
+onMounted(() => {
+  loadIndicators()
+  loadList()
+})
 </script>
 
 <style scoped>
@@ -324,5 +370,20 @@ onMounted(loadList)
   color: var(--t-dim);
   font-weight: 400;
   font-style: italic;
+}
+
+.entry-list {
+  width: 100%;
+}
+.entry-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.entry-unit {
+  width: 60px;
+  color: var(--t-sub);
+  font-size: 13px;
 }
 </style>
