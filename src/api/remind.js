@@ -24,6 +24,10 @@ export function todayLog(patientId) {
   return request({ url: `/chronic/remind/today/${patientId}`, method: 'get' })
 }
 
+export function remindLogs(remindId, days) {
+  return request({ url: `/chronic/remind/${remindId}/logs`, method: 'get', params: { days } })
+}
+
 export function checkRemind(remindId, checkStatus) {
   return request({ url: `/chronic/remind/${remindId}/check`, method: 'put', params: { checkStatus } })
 }

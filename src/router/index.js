@@ -44,6 +44,12 @@ export const routes = [
         name: 'PatientProfile',
         component: () => import('@/views/patient/profile.vue'),
         meta: { title: '专属档案', icon: 'Notebook' }
+      },
+      {
+        path: 'apply',
+        name: 'PatientApply',
+        component: () => import('@/views/patient/apply.vue'),
+        meta: { title: '建档审核', icon: 'Postcard' }
       }
     ]
   },

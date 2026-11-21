@@ -17,6 +17,11 @@ export default defineConfig({
         target: 'http://localhost:8080',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, '')
+      },
+      // 上传的图片由后端静态目录提供，单独代理，避免被 /api 重写
+      '/upload': {
+        target: 'http://localhost:8080',
+        changeOrigin: true
       }
     }
   }

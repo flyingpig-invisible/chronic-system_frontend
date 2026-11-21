@@ -43,13 +43,14 @@
             <el-tag :type="row.status === '1' ? 'success' : 'info'" size="small">{{ row.status === '1' ? '启用' : '停用' }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="190" fixed="right">
+        <el-table-column label="操作" width="240" align="center" class-name="op-col">
           <template #default="{ row }">
-            <el-button type="primary" link size="small" @click="openEdit(row)">编辑</el-button>
-            <el-button type="success" link size="small" @click="toggleStatus(row)">
-              {{ row.status === '1' ? '停用' : '启用' }}
-            </el-button>
-            <el-button type="danger" link size="small" @click="handleDelete(row)">删除</el-button>
+            <div class="op-btns">
+              <el-button type="primary" link size="small" @click="openLogs(row)">打卡记录</el-button>
+              <el-button type="primary" link size="small" @click="openEdit(row)">编辑</el-button>
+              <el-button type="success" link size="small" @click="toggleStatus(row)">{{ row.status === '1' ? '停用' : '启用' }}</el-button>
+              <el-button type="danger" link size="small" @click="handleDelete(row)">删除</el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -59,6 +60,43 @@
           @size-change="loadList" @current-change="loadList" />
       </div>
     </div>
+
+    <el-dialog v-model="logVisible" :title="logTitle" width="720px">
+      <div class="log-summary">
+        <span class="log-item">共 {{ logSummary.total }} 次计划服药</span>
+        <span class="log-item ok">已打卡 {{ logSummary.checked }} 次</span>
+        <span class="log-item miss">漏服 {{ logSummary.missed }} 次</span>
+        <span class="log-item pending">未打卡 {{ logSummary.pending }} 次</span>
+        <span class="log-item">打卡率 {{ logSummary.rate }}%</span>
+        <el-radio-group v-model="logDays" size="small" style="margin-left:auto" @change="loadLogs">
+          <el-radio-button :value="7">近 7 天</el-radio-button>
+          <el-radio-button :value="30">近 30 天</el-radio-button>
+          <el-radio-button :value="0">全部</el-radio-button>
+        </el-radio-group>
+      </div>
+      <el-table v-loading="logLoading" :data="logs" border stripe max-height="420">
+        <el-table-column prop="planDate" label="计划日期" width="120" />
+        <el-table-column prop="planTime" label="计划时间" width="100" />
+        <el-table-column label="状态" width="100">
+          <template #default="{ row }">
+            <el-tag :type="logTagType(row.checkStatus)" size="small">{{ logStatusName(row.checkStatus) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="打卡时间" min-width="170">
+          <template #default="{ row }">{{ row.checkTime ? formatTime(row.checkTime) : '-' }}</template>
+        </el-table-column>
+        <el-table-column label="是否按时" width="100">
+          <template #default="{ row }">
+            <span v-if="row.checkStatus !== '1'" style="color:#909399">-</span>
+            <el-tag v-else-if="isLate(row)" type="warning" size="small">延迟</el-tag>
+            <el-tag v-else type="success" size="small">按时</el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button @click="logVisible = false">关闭</el-button>
+      </template>
+    </el-dialog>
 
     <el-dialog v-model="dialogVisible" :title="form.remindId ? '编辑用药提醒' : '新增用药提醒'" width="520px">
       <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
@@ -87,10 +125,10 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, Plus } from '@element-plus/icons-vue'
-import { listRemind, saveRemind, delRemind, changeRemindStatus } from '@/api/remind'
+import { listRemind, saveRemind, delRemind, changeRemindStatus, remindLogs } from '@/api/remind'
 
 const loading = ref(false)
 const list = ref([])
@@ -164,5 +202,90 @@ const handleDelete = (row) => {
   })
 }
 
+// ---------------- 打卡记录 ----------------
+const logVisible = ref(false)
+const logLoading = ref(false)
+const logDays = ref(30)
+const logs = ref([])
+const logRemind = ref(null)
+
+const logTitle = computed(() => {
+  const r = logRemind.value
+  if (!r) return '打卡记录'
+  const who = r.patientName || ('患者ID:' + r.patientId)
+  return who + ' · ' + r.medicineName + ' 打卡记录'
+})
+
+const LOG_STATUS = { '0': '未打卡', '1': '已打卡', '2': '漏服' }
+const logStatusName = (s) => LOG_STATUS[s] || '-'
+const logTagType = (s) => ({ '1': 'success', '2': 'danger', '0': 'info' }[s] || 'info')
+
+const formatTime = (v) => {
+  if (!v) return '-'
+  return String(v).replace('T', ' ').slice(0, 16)
+}
+
+const logSummary = computed(() => {
+  const rows = logs.value
+  const total = rows.length
+  const checked = rows.filter((r) => r.checkStatus === '1').length
+  const missed = rows.filter((r) => r.checkStatus === '2').length
+  const result = { total, checked, missed, pending: total - checked - missed }
+  result.rate = total ? Math.round(checked * 100 / total) : 0
+  return result
+})
+
+/** 打卡时间晚于计划时间 30 分钟以上算延迟 */
+const isLate = (row) => {
+  if (!row.checkTime || !row.planDate || !row.planTime) return false
+  const plan = new Date(row.planDate + 'T' + row.planTime + ':00')
+  if (isNaN(plan.getTime())) return false
+  const actual = new Date(String(row.checkTime).replace('T', ' ').replace(/-/g, '/'))
+  if (isNaN(actual.getTime())) return false
+  return actual.getTime() - plan.getTime() > 30 * 60 * 1000
+}
+
+const loadLogs = async () => {
+  if (!logRemind.value) return
+  logLoading.value = true
+  try {
+    const res = await remindLogs(logRemind.value.remindId, logDays.value || undefined)
+    logs.value = res.data || []
+  } finally {
+    logLoading.value = false
+  }
+}
+
+const openLogs = (row) => {
+  logRemind.value = row
+  logDays.value = 30
+  logs.value = []
+  logVisible.value = true
+  loadLogs()
+}
+
 onMounted(loadList)
 </script>
+
+<style scoped>
+.op-btns {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+.op-btns .el-button { margin-left: 0; }
+.op-col .cell { padding-left: 12px; padding-right: 12px; }
+.log-summary {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 14px;
+  font-size: 13px;
+  color: #606266;
+}
+.log-item.ok { color: #16A34A; }
+.log-item.miss { color: #E5484D; }
+.log-item.pending { color: #8A94A6; }
+</style>

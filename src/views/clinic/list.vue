@@ -25,11 +25,7 @@
         </el-form-item>
       </el-form>
     </div>
-
     <div class="table-card">
-      <div class="table-toolbar">
-        <el-button type="primary" :icon="Plus" @click="openBook">预约就诊</el-button>
-      </div>
       <el-table v-loading="loading" :data="list" border stripe>
         <el-table-column prop="patientName" label="患者" width="90" />
         <el-table-column label="方式" width="80">
@@ -59,30 +55,29 @@
       </div>
     </div>
 
-    <el-dialog v-model="bookVisible" title="预约就诊" width="500px">
-      <el-form ref="bookRef" :model="bookForm" :rules="bookRules" label-width="90px">
-        <el-form-item label="患者" prop="patientId">
-          <PatientSelect v-model="bookForm.patientId" @select="(p) => (bookForm.patientName = p ? p.name : '')" />
-        </el-form-item>
-        <el-form-item label="就诊方式">
-          <el-radio-group v-model="bookForm.visitType">
-            <el-radio value="1">图文问诊</el-radio>
-            <el-radio value="2">视频问诊</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="主诉"><el-input v-model="bookForm.chiefComplaint" type="textarea" :rows="3" /></el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="bookVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitBook">确定</el-button>
-      </template>
-    </el-dialog>
-
     <el-dialog v-model="finishVisible" title="完成就诊" width="560px">
       <el-form ref="finishRef" :model="finishForm" :rules="finishRules" label-width="90px">
         <el-form-item label="诊断" prop="diagnosis"><el-input v-model="finishForm.diagnosis" /></el-form-item>
         <el-form-item label="医嘱建议"><el-input v-model="finishForm.advice" type="textarea" :rows="3" /></el-form-item>
         <el-form-item label="处方"><el-input v-model="finishForm.prescription" type="textarea" :rows="3" /></el-form-item>
+        <el-form-item label="附件图片">
+          <el-upload
+            action="/api/chronic/upload/image"
+            name="file"
+            :headers="uploadHeaders"
+            list-type="picture-card"
+            :limit="9"
+            :file-list="finishFiles"
+            :on-success="onFinishUploadSuccess"
+            :on-remove="onFinishUploadRemove"
+            :on-change="onFinishUploadChange"
+            :before-upload="beforeImageUpload"
+            accept="image/*"
+          >
+            <el-icon><Plus /></el-icon>
+          </el-upload>
+          <div class="upload-tip">用于发送检验单、患处照片等，单张不超过 5MB，最多 9 张</div>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="finishVisible = false">取消</el-button>
@@ -94,9 +89,15 @@
       <el-descriptions :column="1" border size="small">
         <el-descriptions-item label="患者">{{ current.patientName }}</el-descriptions-item>
         <el-descriptions-item label="主诉">{{ current.chiefComplaint }}</el-descriptions-item>
+        <el-descriptions-item v-if="current.imageList && current.imageList.length" label="症状图片">
+          <el-image v-for="(img, i) in current.imageList" :key="img" :src="img" :preview-src-list="current.imageList" :initial-index="i" fit="cover" style="width:88px;height:88px;border-radius:6px;margin-right:8px" />
+        </el-descriptions-item>
         <el-descriptions-item label="诊断">{{ current.diagnosis }}</el-descriptions-item>
         <el-descriptions-item label="医嘱">{{ current.advice }}</el-descriptions-item>
         <el-descriptions-item label="处方">{{ current.prescription }}</el-descriptions-item>
+        <el-descriptions-item v-if="current.adviceImageList && current.adviceImageList.length" label="诊断附件">
+          <el-image v-for="(img, i) in current.adviceImageList" :key="img" :src="img" :preview-src-list="current.adviceImageList" :initial-index="i" fit="cover" style="width:88px;height:88px;border-radius:6px;margin-right:8px" />
+        </el-descriptions-item>
         <el-descriptions-item label="接诊医生">{{ current.doctorName }}</el-descriptions-item>
         <el-descriptions-item label="完成时间">{{ current.finishTime }}</el-descriptions-item>
       </el-descriptions>
@@ -105,25 +106,60 @@
 </template>
 
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, Refresh, Plus } from '@element-plus/icons-vue'
-import { listClinic, bookClinic, acceptClinic, finishClinic, cancelClinic } from '@/api/clinic'
+import { listClinic, acceptClinic, finishClinic, cancelClinic } from '@/api/clinic'
+import { useUserStore } from '@/store/user'
 
 const loading = ref(false)
 const list = ref([])
 const total = ref(0)
-const bookVisible = ref(false)
 const finishVisible = ref(false)
 const viewVisible = ref(false)
 const current = ref({})
-const bookRef = ref()
 const finishRef = ref()
 
 const query = reactive({ pageNum: 1, pageSize: 10, patientId: null, visitType: '', visitStatus: '' })
-const bookForm = reactive({ patientId: null, patientName: '', visitType: '1', chiefComplaint: '' })
-const finishForm = reactive({ diagnosis: '', advice: '', prescription: '' })
-const bookRules = { patientId: [{ required: true, message: '请输入患者ID', trigger: 'blur' }] }
+const finishForm = reactive({ diagnosis: '', advice: '', prescription: '', adviceImages: '' })
+const finishFiles = ref([])
+const uploadHeaders = computed(() => ({ Authorization: 'Bearer ' + useUserStore().token }))
+
+const beforeImageUpload = (file) => {
+  if (file.size > 5 * 1024 * 1024) {
+    ElMessage.warning('图片不能超过 5MB')
+    return false
+  }
+  return true
+}
+
+// el-upload 自己维护内部文件列表，这里同步一份，保证提交时能拿到已上传成功的路径
+const onFinishUploadSuccess = (res, file, files) => {
+  if (!res || res.code !== 200) {
+    ElMessage.error((res && res.msg) || '上传失败')
+    finishFiles.value = (files || []).filter((f) => f.uid !== file.uid)
+    syncFinishImages()
+    return
+  }
+  // url 必须挂在 response 上，组件才认作上传成功并保留地址
+  finishFiles.value = (files || []).map((f) => (f.uid === file.uid
+    ? Object.assign({}, f, { url: res.data.url, response: res })
+    : f))
+  syncFinishImages()
+}
+
+const onFinishUploadRemove = (file, files) => {
+  finishFiles.value = (files || []).filter((f) => f.uid !== file.uid)
+  syncFinishImages()
+}
+
+const onFinishUploadChange = (file, files) => {
+  finishFiles.value = files || []
+}
+
+const syncFinishImages = () => {
+  finishForm.adviceImages = finishFiles.value.filter((f) => f.url).map((f) => f.url).join(',')
+}
 const finishRules = { diagnosis: [{ required: true, message: '请输入诊断', trigger: 'blur' }] }
 
 const statusName = (s) => ({ 0: '待接诊', 1: '问诊中', 2: '已完成', 3: '已取消' }[s] || '-')
@@ -146,21 +182,6 @@ const resetQuery = () => {
   loadList()
 }
 
-const openBook = () => {
-  Object.assign(bookForm, { patientId: null, patientName: '', visitType: '1', chiefComplaint: '' })
-  bookVisible.value = true
-}
-
-const submitBook = () => {
-  bookRef.value.validate(async (valid) => {
-    if (!valid) return
-    await bookClinic(bookForm)
-    ElMessage.success('预约成功')
-    bookVisible.value = false
-    loadList()
-  })
-}
-
 const handleAccept = async (row) => {
   await acceptClinic(row.visitId)
   ElMessage.success('已接诊')
@@ -169,7 +190,8 @@ const handleAccept = async (row) => {
 
 const openFinish = (row) => {
   current.value = row
-  Object.assign(finishForm, { diagnosis: '', advice: '', prescription: '' })
+  Object.assign(finishForm, { diagnosis: '', advice: '', prescription: '', adviceImages: '' })
+  finishFiles.value = []
   finishVisible.value = true
 }
 
@@ -192,7 +214,10 @@ const handleCancel = (row) => {
 }
 
 const openView = (row) => {
-  current.value = row
+  current.value = Object.assign({}, row, {
+    imageList: row.imageUrls ? row.imageUrls.split(',').filter((u) => !!u) : [],
+    adviceImageList: row.adviceImages ? row.adviceImages.split(',').filter((u) => !!u) : []
+  })
   viewVisible.value = true
 }
 
