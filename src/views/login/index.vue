@@ -53,9 +53,9 @@
       </el-form>
 
       <div class="login-tip">
-        <span class="tip-key">admin</span> / <span class="tip-key">admin123</span> 管理员
+        <span class="tip-key">admin</span> / <span class="tip-key">123456</span> 管理员
         <span class="tip-sep">·</span>
-        <span class="tip-key">doctor</span> / <span class="tip-key">admin123</span> 医生
+        <span class="tip-key">doctor</span> / <span class="tip-key">123456</span> 医生
       </div>
     </div>
 
@@ -74,7 +74,7 @@ const router = useRouter()
 const userStore = useUserStore()
 const formRef = ref()
 const loading = ref(false)
-const form = reactive({ username: 'admin', password: 'admin123' })
+const form = reactive({ username: 'admin', password: '123456' })
 const rules = {
   username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
