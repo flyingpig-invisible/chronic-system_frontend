@@ -20,22 +20,12 @@ export function deleteScores(scoreIds) {
   return request({ url: '/chronic/score/batch', method: 'delete', data: scoreIds })
 }
 
-export function listWeight(params) {
-  return request({ url: '/chronic/score/weight/list', method: 'get', params })
+/** 患者健康评分权重（w1~w4），未配置时后端返回默认值 */
+export function getPatientWeight(patientId) {
+  return request({ url: `/chronic/score/weight/${patientId}`, method: 'get' })
 }
 
-export function saveWeights(data) {
+/** 保存患者健康评分权重，四项之和须为 1 */
+export function savePatientWeight(data) {
   return request({ url: '/chronic/score/weight/save', method: 'post', data })
-}
-
-export function saveWeight(data) {
-  return request({ url: '/chronic/score/weight', method: 'post', data })
-}
-
-export function listCombinedWeights(diseaseCodes) {
-  return request({ url: '/chronic/score/weight/combined', method: 'get', params: { diseaseCodes } })
-}
-
-export function saveCombinedWeights(data) {
-  return request({ url: '/chronic/score/weight/combined/save', method: 'post', data })
 }

@@ -8,11 +8,11 @@
         <el-form-item label="手机号">
           <el-input v-model="query.phone" placeholder="手机号" clearable style="width:150px" @keyup.enter="handleQuery" />
         </el-form-item>
-        <el-form-item label="风险等级">
+        <el-form-item label="健康等级">
           <el-select v-model="query.riskLevel" placeholder="全部" clearable style="width:120px">
-            <el-option label="低危" value="1" />
-            <el-option label="中危" value="2" />
-            <el-option label="高危" value="3" />
+            <el-option label="较差" value="1" />
+            <el-option label="一般" value="2" />
+            <el-option label="良好" value="3" />
           </el-select>
         </el-form-item>
         <el-form-item label="科室">
@@ -59,12 +59,12 @@
             <el-tag v-for="d in row.diseases || []" :key="d" size="small" style="margin-right:4px">{{ d }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="风险等级" width="90">
+        <el-table-column label="健康等级" width="90">
           <template #default="{ row }">
             <el-tag :type="levelTag(row.riskLevel)" size="small">{{ levelName(row.riskLevel) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="riskScore" label="风险分" width="80" />
+        <el-table-column prop="healthScore" label="健康评分" width="90" />
         <el-table-column prop="pendingWarningCount" label="待处理预警" width="100">
           <template #default="{ row }">
             <el-badge v-if="row.pendingWarningCount > 0" :value="row.pendingWarningCount" type="danger" />
@@ -128,9 +128,9 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="风险等级">
-              <!-- 风险等级由健康评分计算得出，不支持手工修改 -->
-              <el-input :model-value="levelName(form.riskLevel)" disabled placeholder="暂无评分，默认为低危" />
+            <el-form-item label="健康等级">
+              <!-- 健康等级由健康评分计算得出，不支持手工修改 -->
+              <el-input :model-value="levelName(form.healthLevel || form.riskLevel)" disabled placeholder="暂无评分" />
             </el-form-item>
           </el-col>
           <el-col :span="12">
@@ -206,8 +206,8 @@ const rules = {
   phone: [{ pattern: /^1[3-9]\d{9}$/, message: '手机号格式不正确', trigger: 'blur' }]
 }
 
-const levelTag = (l) => ({ 1: 'success', 2: 'warning', 3: 'danger' }[l] || 'info')
-const levelName = (l) => ({ 1: '低危', 2: '中危', 3: '高危' }[l] || '-')
+const levelTag = (l) => ({ 3: 'success', 2: 'warning', 1: 'danger' }[l] || 'info')
+const levelName = (l) => ({ 3: '良好', 2: '一般', 1: '较差' }[l] || '-')
 
 const loadList = async () => {
   loading.value = true

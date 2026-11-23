@@ -25,7 +25,25 @@
       <div class="table-toolbar">
         <el-button v-permission="['chronic:article:edit']" type="primary" :icon="Plus" @click="openAdd">新增文章</el-button>
       </div>
-      <el-table v-loading="loading" :data="list" border stripe>
+      <el-table ref="tableRef" v-loading="loading" :data="list" border stripe row-key="articleId">
+        <el-table-column type="expand" width="44">
+          <template #default="{ row }">
+            <div class="article-expand">
+              <div class="article-expand-head">
+                <span class="article-expand-title">{{ row.title }}</span>
+                <span class="article-expand-meta">
+                  {{ row.categoryName || '-' }} · {{ diseaseName(row.diseaseCode) }}
+                  <template v-if="row.author"> · {{ row.author }}</template>
+                  <template v-if="row.publishTime"> · {{ row.publishTime }}</template>
+                </span>
+              </div>
+              <div v-if="row.summary" class="article-expand-summary">摘要：{{ row.summary }}</div>
+              <div v-if="hasHtml(row.content)" class="article-expand-body" v-html="row.content"></div>
+              <pre v-else-if="row.content" class="article-expand-body article-expand-text">{{ row.content }}</pre>
+              <el-empty v-else description="暂无正文内容" :image-size="60" />
+            </div>
+          </template>
+        </el-table-column>
         <el-table-column prop="title" label="标题" min-width="200" show-overflow-tooltip />
         <el-table-column prop="categoryName" label="分类" width="120" />
         <el-table-column label="病种" width="100">
@@ -110,6 +128,7 @@ const total = ref(0)
 const categories = ref([])
 const dialogVisible = ref(false)
 const formRef = ref()
+const tableRef = ref()
 
 const query = reactive({ pageNum: 1, pageSize: 10, keyword: '', categoryId: null, publishStatus: '' })
 const form = reactive({
@@ -119,6 +138,7 @@ const form = reactive({
 const rules = { title: [{ required: true, message: '请输入标题', trigger: 'blur' }] }
 
 const diseaseName = (c) => ({ 1: '高血压', 2: '糖尿病', 3: '冠心病', 4: '慢阻肺' }[c] || '-')
+const hasHtml = (text) => typeof text === 'string' && /<\/?[a-z][\s\S]*>/i.test(text)
 
 const loadList = async () => {
   loading.value = true
@@ -187,3 +207,77 @@ onMounted(async () => {
   } catch (e) {}
 })
 </script>
+
+<style scoped>
+.article-expand {
+  padding: 4px 16px 12px 44px;
+  text-align: left;
+}
+
+.article-expand-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.article-expand-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.article-expand-meta {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+
+.article-expand-summary {
+  margin-bottom: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--el-text-color-regular);
+  background: var(--el-fill-color-light);
+  border-radius: 6px;
+}
+
+.article-expand-body {
+  font-size: 14px;
+  line-height: 1.8;
+  color: var(--el-text-color-regular);
+  max-width: 960px;
+}
+
+.article-expand-body :deep(h1),
+.article-expand-body :deep(h2),
+.article-expand-body :deep(h3) {
+  margin: 12px 0 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--el-text-color-primary);
+}
+
+.article-expand-body :deep(p) {
+  margin: 8px 0;
+}
+
+.article-expand-body :deep(ul),
+.article-expand-body :deep(ol) {
+  margin: 8px 0;
+  padding-left: 22px;
+}
+
+.article-expand-body :deep(img) {
+  max-width: 100%;
+  height: auto;
+}
+
+.article-expand-text {
+  margin: 0;
+  font-family: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+</style>

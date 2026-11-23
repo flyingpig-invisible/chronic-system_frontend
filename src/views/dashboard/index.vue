@@ -67,7 +67,7 @@
               <template #default="{ row }">{{ row.gender === '1' ? '男' : row.gender === '0' ? '女' : '-' }}</template>
             </el-table-column>
             <el-table-column prop="phone" label="电话" width="130" />
-            <el-table-column prop="riskScore" label="风险分" width="80" />
+            <el-table-column prop="healthScore" label="健康评分" width="90" />
             <el-table-column prop="pendingWarningCount" label="待处理预警" />
           </el-table>
         </div>

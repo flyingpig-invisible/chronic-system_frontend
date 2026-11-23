@@ -1,443 +1,213 @@
 <template>
   <div class="page-container">
     <div class="search-bar">
-      <el-form :model="query" inline>
-        <el-form-item label="病种">
-          <el-radio-group v-model="query.diseaseCode" @change="loadList">
-            <el-radio-button label="">全部</el-radio-button>
-            <el-radio-button v-for="d in diseases" :key="d.code" :label="d.code">{{ d.name }}</el-radio-button>
-          </el-radio-group>
+      <el-form inline>
+        <el-form-item label="患者">
+          <PatientSelect v-model="patientId" width="260px" placeholder="选择患者配置权重" @select="onPatientSelect" />
+        </el-form-item>
+        <el-form-item>
+          <el-button type="primary" :icon="Search" :disabled="!patientId" @click="loadWeight">查询</el-button>
         </el-form-item>
       </el-form>
     </div>
 
     <div class="table-card">
       <div class="table-toolbar">
+        <div class="toolbar-title">
+          <span class="title-text">健康评分权重</span>
+          <el-tag v-if="patientId" size="small" type="info">{{ patientLabel }}</el-tag>
+          <el-tag v-if="configured" size="small" type="success">已自定义</el-tag>
+          <el-tag v-else-if="patientId" size="small" type="warning">使用默认权重</el-tag>
+        </div>
         <div style="display:flex;gap:8px">
-          <el-button type="primary" :icon="EditPen" @click="openEdit">修改权重</el-button>
-          <el-button :icon="Share" @click="openCombined">病种间权重</el-button>
+          <el-button :icon="RefreshLeft" :disabled="!patientId" @click="resetDefault">恢复默认</el-button>
+          <el-button :icon="Histogram" :disabled="!patientId" @click="fillAverage">四项均分</el-button>
+          <el-button type="primary" :loading="submitting" :disabled="!patientId" @click="handleSubmit">保存并重算</el-button>
         </div>
       </div>
-      <el-table v-loading="loading" :data="list" border stripe>
-        <el-table-column prop="weightId" label="ID" width="70" />
-        <el-table-column label="病种" width="120">
-          <template #default="{ row }">{{ diseaseName(row.diseaseCode) }}</template>
-        </el-table-column>
-        <el-table-column prop="indicatorName" label="指标" width="140" />
-        <el-table-column prop="indicatorCode" label="指标编码" width="120" />
-        <el-table-column prop="weight" label="权重(0-1)" width="130" />
-        <el-table-column label="权重占比" min-width="200">
-          <template #default="{ row }">
-            <el-progress :percentage="Math.round(row.weight * 100)" />
-          </template>
-        </el-table-column>
-      </el-table>
-    </div>
 
-    <el-dialog v-model="dialogVisible" title="修改评分权重" width="760px" :close-on-click-modal="false">
-      <el-steps :active="step" finish-status="success" align-center style="margin-bottom:20px">
-        <el-step title="选择病种与指标" />
-        <el-step title="设置权重" />
-      </el-steps>
+      <el-empty v-if="!patientId" description="请先选择患者" :image-size="80" />
 
-      <div v-if="step === 0" class="step-card">
-        <el-form label-width="100px">
-          <el-form-item label="病种" required>
-            <el-select v-model="form.diseaseCode" style="width:100%" @change="onDiseaseChange">
-              <el-option v-for="d in diseases" :key="d.code" :label="d.name" :value="d.code" />
-            </el-select>
-          </el-form-item>
-        </el-form>
-
-        <div class="section-title">
-          <span>指标清单</span>
-          <el-button size="small" type="primary" plain :icon="Plus" @click="addIndicator">新增指标</el-button>
+      <template v-else>
+        <div class="formula-tip">
+          健康评分 = (w1 × 指标达标率 + w2 × 用药依从率 + w3 × (1 − 预警密度) + w4 × 检测完成率) × 100，统计范围为当前时刻往前 7 天。
         </div>
-        <el-table :data="form.items" border size="small" empty-text="请至少添加一个指标">
-          <el-table-column label="指标" min-width="240">
+
+        <el-table :data="rows" border size="default" class="weight-table">
+          <el-table-column label="分项" width="130">
             <template #default="{ row }">
-              <el-select
-                v-model="row.indicatorCode"
-                filterable
-                placeholder="请选择指标"
-                style="width:100%"
-                :disabled="!isNewRow(row)"
-                @change="(code) => onItemIndicatorChange(row, code)"
-              >
-                <el-option
-                  v-for="ind in selectableIndicators(row.indicatorCode)"
-                  :key="ind.indicatorCode"
-                  :label="ind.unit ? `${ind.indicatorName}（${ind.unit}）` : ind.indicatorName"
-                  :value="ind.indicatorCode"
-                />
-              </el-select>
+              <span class="factor-name">{{ row.name }}</span>
+              <span class="factor-code">{{ row.code }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="指标编码" width="120">
+          <el-table-column label="含义" min-width="260">
             <template #default="{ row }">
-              <span class="code-text">{{ row.indicatorCode || '-' }}</span>
+              <span class="factor-desc">{{ row.desc }}</span>
             </template>
           </el-table-column>
-          <el-table-column label="单位" width="100">
+          <el-table-column label="权重(0-1)" width="200">
             <template #default="{ row }">
-              <span class="unit-text">{{ indicatorUnit(row.indicatorCode) || '-' }}</span>
+              <el-input-number v-model="row.weight" :min="0" :max="1" :step="0.05" :precision="2" style="width:140px" />
             </template>
           </el-table-column>
-          <el-table-column label="操作" width="80" align="center">
-            <template #default="{ $index, row }">
-              <el-button v-if="isNewRow(row)" link type="danger" @click="removeIndicator($index)">移除</el-button>
-              <el-button v-else link type="warning" @click="clearIndicator(row)">清空</el-button>
+          <el-table-column label="占比" min-width="200">
+            <template #default="{ row }">
+              <el-progress :percentage="Math.round((row.weight || 0) * 100)" :stroke-width="12" />
             </template>
           </el-table-column>
         </el-table>
-        <div class="hint">
-          指标需从「系统管理 → 指标管理」中已维护的指标里选择；已有指标的权重配置可直接进入下一步调整权重。
-        </div>
-      </div>
 
-      <div v-else class="step-card">
-        <div class="section-title">
-          <span>{{ diseaseName(form.diseaseCode) }} · 指标权重</span>
+        <div class="weight-summary">
           <span :class="['weight-total', sumValid ? 'is-ok' : 'is-error']">
-            合计 {{ sumText }}
+            四项合计 {{ sumText }}
           </span>
+          <span class="weight-hint">四项权重之和必须等于 1.00</span>
+          <span v-if="updateTime" class="weight-time">上次保存：{{ updateTime }}</span>
         </div>
-        <el-table :data="form.items" border size="small">
-          <el-table-column prop="indicatorName" label="指标" width="140" />
-          <el-table-column prop="indicatorCode" label="指标编码" width="120" />
-          <el-table-column label="权重(0-1)" width="180">
-            <template #default="{ row }">
-              <el-input-number v-model="row.weight" :min="0" :max="1" :step="0.05" :precision="2" style="width:130px" />
-            </template>
-          </el-table-column>
-          <el-table-column label="权重占比" min-width="180">
-            <template #default="{ row }">
-              <el-progress :percentage="Math.round((row.weight || 0) * 100)" />
-            </template>
-          </el-table-column>
-        </el-table>
-        <div class="hint">
-          同一病种所有指标的权重之和必须等于 1。
-          <el-button link type="primary" @click="fillRemainder">自动补齐剩余权重</el-button>
-        </div>
-      </div>
-
-      <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button v-if="step === 1" @click="step = 0">上一步</el-button>
-        <el-button v-if="step === 0" type="primary" @click="goNext">下一步</el-button>
-        <el-button v-else type="primary" :loading="submitting" @click="handleSubmit">确定</el-button>
       </template>
-    </el-dialog>
-
-    <el-dialog v-model="combinedVisible" title="病种间权重（多病共存综合评分）" width="640px" :close-on-click-modal="false">
-      <el-alert
-        type="info"
-        :closable="false"
-        show-icon
-        title="患者同时患多种慢病时，分别计算各病种评分，再按此处权重合成综合评分。四个病种权重相等即为默认平分（患者患 2 种病则各占 50%）。"
-        style="margin-bottom:12px"
-      />
-      <div class="section-title">
-        <span>各病种占总分比例</span>
-        <span :class="['weight-total', combinedValid ? 'is-ok' : 'is-error']">
-          合计 {{ combinedSumText }}
-        </span>
-      </div>
-      <el-table :data="combinedItems" border size="small">
-        <el-table-column prop="diseaseName" label="病种" width="140" />
-        <el-table-column label="权重(0-1)" width="180">
-          <template #default="{ row }">
-            <el-input-number v-model="row.weight" :min="0" :max="1" :step="0.05" :precision="2" style="width:130px" />
-          </template>
-        </el-table-column>
-        <el-table-column label="占比" min-width="180">
-          <template #default="{ row }">
-            <el-progress :percentage="Math.round((row.weight || 0) * 100)" />
-          </template>
-        </el-table-column>
-      </el-table>
-      <div class="hint">
-        四个病种权重相等时按平分处理（如 0.25×4，或 0.50/0.50 各占一半）；设为不等权重时，各病种权重之和必须等于 1。
-        <el-button link type="primary" @click="fillCombinedRemainder">自动补齐剩余权重</el-button>
-        <el-button link type="primary" @click="resetCombinedAverage">恢复平分</el-button>
-      </div>
-      <template #footer>
-        <el-button @click="combinedVisible = false">取消</el-button>
-        <el-button type="primary" :loading="combinedSubmitting" @click="handleCombinedSubmit">确定</el-button>
-      </template>
-    </el-dialog>
+    </div>
   </div>
 </template>
 
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { ElMessage } from 'element-plus'
-import { EditPen, Plus, Share } from '@element-plus/icons-vue'
-import { listWeight, saveWeights, listCombinedWeights, saveCombinedWeights } from '@/api/score'
-import { listIndicator as indicatorList } from '@/api/system'
+import { Search, RefreshLeft, Histogram } from '@element-plus/icons-vue'
+import PatientSelect from '@/components/PatientSelect.vue'
+import { getPatientWeight, savePatientWeight } from '@/api/score'
 
-const diseases = [
-  { code: '1', name: '高血压' }, { code: '2', name: '糖尿病' },
-  { code: '3', name: '冠心病' }, { code: '4', name: '慢阻肺' }
+/** 默认权重与后端保持一致 */
+const DEFAULT_WEIGHTS = { wRisk: 0.4, wMed: 0.25, wAlert: 0.15, wMonitor: 0.2 }
+
+const FACTORS = [
+  { key: 'wRisk', code: 'w1', name: '指标达标率', desc: '近 7 天各指标最新一次测量中达标的比例，本周未测指标记 0' },
+  { key: 'wMed', code: 'w2', name: '用药依从率', desc: '按时打卡 / (按时 + 迟服 + 漏服)，晚 1~2 小时为迟服，超过 2 小时为漏服' },
+  { key: 'wAlert', code: 'w3', name: '预警密度', desc: '出现中危及以上预警的天数 / 有测量数据的天数，按 (1 − 密度) 计分' },
+  { key: 'wMonitor', code: 'w4', name: '检测完成率', desc: '已过整天按每天 3 次统计完成次数，单日超过 3 次按 3 次计' }
 ]
 
-const loading = ref(false)
+const patientId = ref(null)
+const patientLabel = ref('')
+const configured = ref(false)
+const updateTime = ref('')
 const submitting = ref(false)
-const list = ref([])
-const dialogVisible = ref(false)
-const step = ref(0)
+const weights = ref({ ...DEFAULT_WEIGHTS })
 
-const query = reactive({ diseaseCode: '' })
-const form = reactive({ diseaseCode: '1', items: [] })
+const rows = computed(() => FACTORS.map((f) => ({
+  key: f.key,
+  code: f.code,
+  name: f.name,
+  desc: f.desc,
+  weight: Number(weights.value[f.key]) || 0
+})))
 
-const diseaseName = (c) => diseases.find((d) => d.code === c)?.name || '-'
-const toNumber = (w) => Math.round((Number(w) || 0) * 100) / 100
-const total = computed(() => Math.round(form.items.reduce((s, i) => s + (Number(i.weight) || 0), 0) * 100) / 100)
+const total = computed(() => Math.round(rows.value.reduce((s, r) => s + (Number(r.weight) || 0), 0) * 100) / 100)
 const sumValid = computed(() => Math.abs(total.value - 1) < 1e-6)
 const sumText = computed(() => `${total.value.toFixed(2)}${sumValid.value ? '（符合要求）' : '（需为 1.00）'}`)
 
-const loadList = async () => {
-  loading.value = true
+const onPatientSelect = (patient) => {
+  patientLabel.value = patient ? `${patient.name || ''}${patient.patientNo ? ' · ' + patient.patientNo : ''}` : ''
+  if (patientId.value) loadWeight()
+}
+
+const loadWeight = async () => {
+  if (!patientId.value) return
   try {
-    const res = await listWeight({ diseaseCode: query.diseaseCode || undefined })
-    list.value = res.data || []
-  } finally {
-    loading.value = false
-  }
-}
-
-const loadDiseaseItems = async (code) => {
-  const res = await listWeight({ diseaseCode: code })
-  form.items = (res.data || []).map((w) => ({
-    indicatorCode: w.indicatorCode,
-    indicatorName: w.indicatorName,
-    weight: toNumber(w.weight),
-    saved: true
-  }))
-}
-
-const onDiseaseChange = async (code) => {
-  await loadDiseaseItems(code)
-}
-
-/** 指标库（系统管理 → 指标管理），新增指标只能从中选择 */
-const indicatorOptions = ref([])
-const indicatorMap = computed(() => {
-  const map = {}
-  indicatorOptions.value.forEach((ind) => { map[ind.indicatorCode] = ind })
-  return map
-})
-const indicatorUnit = (code) => (code && indicatorMap.value[code] ? indicatorMap.value[code].unit : '')
-
-/** 新添加的空行可自由选指标；已配置的旧行只读，避免破坏既有权重 */
-const isNewRow = (row) => !row.saved
-
-const loadIndicatorOptions = async () => {
-  try {
-    const res = await indicatorList({ pageNum: 1, pageSize: 500, status: '0' })
-    indicatorOptions.value = res.data.rows || []
+    const res = await getPatientWeight(patientId.value)
+    const d = res.data || {}
+    weights.value = {
+      wRisk: Number(d.wRisk ?? DEFAULT_WEIGHTS.wRisk),
+      wMed: Number(d.wMed ?? DEFAULT_WEIGHTS.wMed),
+      wAlert: Number(d.wAlert ?? DEFAULT_WEIGHTS.wAlert),
+      wMonitor: Number(d.wMonitor ?? DEFAULT_WEIGHTS.wMonitor)
+    }
+    configured.value = !!d.configured
+    updateTime.value = d.updateTime || ''
   } catch (e) {
-    indicatorOptions.value = []
+    weights.value = { ...DEFAULT_WEIGHTS }
+    configured.value = false
+    updateTime.value = ''
   }
 }
 
-/** 下拉候选：已在其他行选中的指标不再重复出现，当前行自身的值保留 */
-const selectableIndicators = (currentCode) => {
-  const used = new Set(form.items.map((i) => i.indicatorCode).filter(Boolean))
-  return indicatorOptions.value.filter((ind) => ind.indicatorCode === currentCode || !used.has(ind.indicatorCode))
+const resetDefault = () => {
+  weights.value = { ...DEFAULT_WEIGHTS }
+  ElMessage.info('已恢复默认权重，保存后生效')
 }
 
-/** 选中指标后回填名称，并清掉可能残留的旧名称 */
-const onItemIndicatorChange = (row, code) => {
-  const ind = indicatorMap.value[code]
-  row.indicatorName = ind ? ind.indicatorName : ''
-  if (!code) row.unit = ''
-}
-
-const addIndicator = () => {
-  form.items.push({ indicatorCode: '', indicatorName: '', weight: 0, saved: false })
-}
-
-/** 已保存的指标清空后等同于新增一行 */
-const clearIndicator = (row) => {
-  row.indicatorCode = ''
-  row.indicatorName = ''
-  row.weight = 0
-  row.saved = false
-}
-
-const removeIndicator = (index) => {
-  form.items.splice(index, 1)
-}
-
-const goNext = () => {
-  if (!form.diseaseCode) {
-    return ElMessage.warning('请选择病种')
-  }
-  if (!form.items.length) {
-    return ElMessage.warning('请至少指定一个指标')
-  }
-  const seen = new Set()
-  let emptyCount = 0
-  for (const item of form.items) {
-    const code = (item.indicatorCode || '').trim()
-    if (!code) {
-      emptyCount++
-      continue
-    }
-    if (!indicatorMap.value[code]) {
-      return ElMessage.warning(`指标「${code}」不在系统指标库中，请从下拉列表中选择`)
-    }
-    item.indicatorName = indicatorMap.value[code].indicatorName
-    if (seen.has(code)) {
-      return ElMessage.warning(`指标「${item.indicatorName}」重复`)
-    }
-    seen.add(code)
-  }
-  if (emptyCount) {
-    return ElMessage.warning('存在未选择指标的空白行，请选择指标或移除该行')
-  }
-  step.value = 1
-}
-
-const fillRemainder = () => {
-  if (!form.items.length) return
-  const sum = form.items.reduce((s, i) => s + (Number(i.weight) || 0), 0)
-  const last = form.items[form.items.length - 1]
-  const rest = Math.round((1 - sum + (Number(last.weight) || 0)) * 100) / 100
-  if (rest < 0 || rest > 1) {
-    return ElMessage.warning('剩余权重超出范围，请先调整其他指标')
-  }
-  last.weight = rest
+/** 四项均分为 0.25 */
+const fillAverage = () => {
+  weights.value = { wRisk: 0.25, wMed: 0.25, wAlert: 0.25, wMonitor: 0.25 }
 }
 
 const handleSubmit = async () => {
-  for (const item of form.items) {
-    const weight = Number(item.weight)
-    if (item.weight === null || item.weight === undefined || Number.isNaN(weight)) {
-      return ElMessage.warning(`请填写指标「${item.indicatorName}」的权重`)
-    }
-    if (weight < 0 || weight > 1) {
-      return ElMessage.warning(`指标「${item.indicatorName}」的权重必须在 0~1 之间`)
+  if (!patientId.value) {
+    ElMessage.warning('请先选择患者')
+    return
+  }
+  for (const r of rows.value) {
+    const w = Number(r.weight)
+    if (Number.isNaN(w) || w < 0 || w > 1) {
+      ElMessage.warning(`「${r.name}」的权重必须在 0~1 之间`)
+      return
     }
   }
   if (!sumValid.value) {
-    return ElMessage.warning(`该病种指标权重之和必须为 1，当前为 ${total.value.toFixed(2)}`)
+    ElMessage.warning(`四项权重之和必须为 1，当前为 ${total.value.toFixed(2)}`)
+    return
   }
   submitting.value = true
   try {
-    await saveWeights({
-      diseaseCode: form.diseaseCode,
-      items: form.items.map((i) => ({
-        indicatorCode: i.indicatorCode.trim(),
-        indicatorName: i.indicatorName.trim(),
-        weight: Number(i.weight)
-      }))
+    await savePatientWeight({
+      patientId: patientId.value,
+      wRisk: Number(weights.value.wRisk),
+      wMed: Number(weights.value.wMed),
+      wAlert: Number(weights.value.wAlert),
+      wMonitor: Number(weights.value.wMonitor)
     })
-    ElMessage.success('权重修改成功')
-    dialogVisible.value = false
-    step.value = 0
-    if (!query.diseaseCode || query.diseaseCode === form.diseaseCode) {
-      query.diseaseCode = form.diseaseCode
-    }
-    loadList()
+    ElMessage.success('权重保存成功，已按新权重重新计算健康评分')
+    await loadWeight()
   } finally {
     submitting.value = false
   }
 }
-
-const openEdit = async () => {
-  step.value = 0
-  form.diseaseCode = query.diseaseCode || '1'
-  await Promise.all([loadDiseaseItems(form.diseaseCode), loadIndicatorOptions()])
-  dialogVisible.value = true
-}
-
-/* ---------------- 病种间权重 ---------------- */
-const combinedVisible = ref(false)
-const combinedSubmitting = ref(false)
-const combinedItems = ref([])
-
-const combinedSum = computed(() => Math.round(combinedItems.value.reduce((s, i) => s + (Number(i.weight) || 0), 0) * 100) / 100)
-const combinedValid = computed(() => Math.abs(combinedSum.value - 1) < 1e-6)
-const combinedSumText = computed(() => `${combinedSum.value.toFixed(2)}${combinedValid.value ? '（符合要求）' : '（需为 1.00）'}`)
-
-const openCombined = async () => {
-  const res = await listCombinedWeights(diseases.map((d) => d.code).join(','))
-  combinedItems.value = (res.data || []).map((d) => ({
-    diseaseCode: d.diseaseCode,
-    diseaseName: d.diseaseName || diseaseName(d.diseaseCode),
-    weight: toNumber(d.weight)
-  }))
-  combinedVisible.value = true
-}
-
-const fillCombinedRemainder = () => {
-  if (!combinedItems.value.length) return
-  const sum = combinedItems.value.reduce((s, i) => s + (Number(i.weight) || 0), 0)
-  const last = combinedItems.value[combinedItems.value.length - 1]
-  const rest = Math.round((1 - sum + (Number(last.weight) || 0)) * 100) / 100
-  if (rest < 0 || rest > 1) {
-    return ElMessage.warning('剩余权重超出范围，请先调整其他病种')
-  }
-  last.weight = rest
-}
-
-const resetCombinedAverage = () => {
-  const avg = Math.round((1 / combinedItems.value.length) * 100) / 100
-  combinedItems.value.forEach((item, index) => {
-    item.weight = index === combinedItems.value.length - 1
-      ? Math.round((1 - avg * (combinedItems.value.length - 1)) * 100) / 100
-      : avg
-  })
-}
-
-const handleCombinedSubmit = async () => {
-  for (const item of combinedItems.value) {
-    const weight = Number(item.weight)
-    if (Number.isNaN(weight) || weight < 0 || weight > 1) {
-      return ElMessage.warning(`病种「${item.diseaseName}」的权重必须在 0~1 之间`)
-    }
-  }
-  if (!combinedValid.value) {
-    return ElMessage.warning(`病种权重之和必须为 1，当前为 ${combinedSum.value.toFixed(2)}`)
-  }
-  combinedSubmitting.value = true
-  try {
-    await saveCombinedWeights(combinedItems.value.map((i) => ({
-      diseaseCode: i.diseaseCode,
-      diseaseName: i.diseaseName,
-      weight: Number(i.weight)
-    })))
-    ElMessage.success('病种间权重修改成功')
-    combinedVisible.value = false
-  } finally {
-    combinedSubmitting.value = false
-  }
-}
-
-onMounted(() => {
-  loadList()
-  loadIndicatorOptions()
-})
 </script>
 
 <style scoped>
-.step-card {
-  min-height: 240px;
-}
-.section-title {
+.toolbar-title {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin: 8px 0 12px;
+  gap: 8px;
+}
+.title-text {
+  font-size: 15px;
   font-weight: 600;
 }
-.hint {
-  margin-top: 10px;
+.formula-tip {
+  margin: 4px 0 14px;
+  padding: 8px 12px;
   font-size: 12px;
   color: var(--el-text-color-secondary);
+  background: var(--el-fill-color-light);
+  border-radius: 4px;
+}
+.factor-name {
+  font-weight: 600;
+}
+.factor-code {
+  margin-left: 6px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.factor-desc {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
+}
+.weight-summary {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 12px;
 }
 .weight-total {
   font-weight: 600;
@@ -447,5 +217,10 @@ onMounted(() => {
 }
 .weight-total.is-error {
   color: var(--el-color-danger);
+}
+.weight-hint,
+.weight-time {
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 </style>
